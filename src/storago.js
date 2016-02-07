@@ -11,6 +11,17 @@ var storago = {};
    var Entry = function(name, prop){};
    Entry.prototype.id = null;
 
+   Entry.prototype.save = function(){
+     var insert = new query.Insert(this._META);
+     insert.add(this);
+
+     console.log(storago.db);
+     storago.db.transaction(function(tx){
+       console.log('oi');
+       insert.execute(tx);
+     });
+   };
+
    Entry.find = function(id, cb){
      var select = this.select();
      select.where(this._META.name + '.id = ?', id);
@@ -77,14 +88,24 @@ var storago = {};
 
    var schema = function(callback){
 
-     console.log(storago.db);
+     var transaction = function(index, tx){
+       console.log('passa', index, metadatas.length);
+       var meta = metadatas.length > index ? metadatas[index] : null;
+       if(meta == null) return;
+       var sql  = new query.Create(meta).render();
+       console.log(sql);
+       tx.executeSql(sql, [], function(tran, result){
+         console.log('opa');
+
+         transaction(index + 1, tran);
+       }, function(msg){
+
+         console.log('erroor');
+       });
+     };
+
      storago.db.transaction(function(tx){
-       for(var m in metadatas){
-         var meta = metadatas[m];
-         var make = new query.Create(meta);
-         console.log(make.render());
-         tx.executeSql(make.render());
-       }
+       transaction(0, tx);
      });
    };
    storago.syncSchema = schema;
@@ -178,7 +199,7 @@ var storago = {};
    create.prototype.parse = function(){
 
      if(!this.meta.props.hasOwnProperty('id')){
-       this.columns.push('id INTEGER PRIMARY KEY AUTOINCREMENT');
+       this.columns.push('id REAL UNIQUE');
      }
 
      for(var name in this.meta.props){
@@ -195,9 +216,76 @@ var storago = {};
        sql += this.columns[c];
        if((this.columns.length - 1) != c) sql += ', ';
      }
-     sql += ');'
+     sql += '); '
 
      return sql;
+   };
+
+   //query.Insert class
+   var insert = function(meta){
+     this.meta = meta;
+     this.columns = [];
+     this.objects = [];
+     this.values = [];
+   };
+   query.Insert = insert;
+
+   insert.prototype.add = function(obj){
+
+     if(!obj._META || obj._META.name != this.meta.name){
+       var msg = "(storago) No permission: object must be of class(" + this.meta.name + ")" ;
+       msg += ", but is the class(" + obj._META.name + ")";
+
+       throw msg;
+     }
+
+     this.objects.push(obj);
+   };
+
+   insert.prototype.parse = function(){
+
+     for(var prop in this.meta.props) this.columns.push(prop);
+     for(var parent in this.meta.parents) this.columns.push(parent + '_id');
+
+     for(var o in this.objects){
+       var obj = this.objects[0];
+       for(c in this.columns){
+         var column = this.columns[c];
+         this.values.push(obj[column]);
+       }
+     }
+   };
+
+   insert.prototype.render = function(){
+
+     this.parse();
+     var sql = 'INSERT INTO ' + this.meta.name + ' (';
+
+     for(var c in this.columns){
+       sql += this.columns[c];
+       if(c < this.columns.length-1) sql += ',';
+     }
+
+     sql += ') VALUES (';
+
+     for(var o in this.objects){
+       var obj = this.objects[0];
+       for(c in this.columns){
+         var column = this.columns[c];
+         sql += '?';
+         if(c < this.columns.length-1) sql += ', ';
+       }
+       if(o < this.objects.length-1) sql += '), ';
+     }
+
+     sql += ');';
+     return sql;
+   };
+
+   insert.prototype.execute = function(tx){
+     console.log('passa');
+     console.log(this.render(), this.values);
+     //tx.executeSql(this.render(), this.values);
    };
 
 }(storago));

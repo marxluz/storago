@@ -7,38 +7,38 @@ describe('DB test', function(){
 
   it('create table', function(){
 
-
+    var Boat = storago.define('boats', {type: 'text', size: 'text'});
 
     var Brand = storago.define('brands', {name: 'text'});
 
     var Car = storago.define('cars', {type: 'text', color: 'text'});
     Car.hasMany('brand', Brand, 'cars');
 
-    var Boat = storago.define('boats', {type: 'text', size: 'text'});
+
 
     storago.connect('shop_car', '1.0', 'Showrow of cars', 5 * 1024 * 1024);
     storago.syncSchema();
 
-
+    /*
     var katamaran = new Boat();
     katamaran.id = 12;
 
     //console.log(car._META.parents);
     var fiat = new Brand();
-    fiat.id = 13;
+    fiat.name = 'Fiat';
+    fiat.save();
 
     var vw = new Brand();
-    vw.id = 15;
+    vw.name = 'Volkswagen';
+    vw.save();
 
     var palio = new Car();
+    palio.type = 'SW';
+    palio.color = 'Black';
     palio.brand(fiat);
-
-
+    palio.save();
+    */
     //console.log(palio);
-
-    palio.brand(function(brand){ console.log(brand) });
-    //console.log(palio._MET);
-
 
 
 
