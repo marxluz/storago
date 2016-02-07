@@ -25,10 +25,12 @@ describe('DB test', function(){
     vw.id = 15;
 
     var palio = new Car();
-    palio.brand = fiat;
+    palio.brand(fiat);
 
-    console.log(palio);
-    //console.log(palio._META);
+    //console.log(palio);
+
+    palio.brand(function(brand){ console.log(brand) });
+    //console.log(palio._MET);
 
 
 
