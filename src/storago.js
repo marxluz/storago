@@ -1,6 +1,8 @@
 var storago = {};
 ;(function(storago){
 
+  var metadatas = [];
+
    var Metadata = function(){
      this.dependents = {};
      this.parents = {};
@@ -50,11 +52,17 @@ var storago = {};
 
    };
 
+   var connect = function(name, version, description, size){
+     storago.db = openDatabase(name, version, description, size);
+   };
+   storago.connect = connect;
+
    var define = function(name, props){
 
      var meta = new Metadata();
      meta.name = name;
      meta.props = props;
+     metadatas.push(meta);
 
      var table = function(){};
      for(var i in Entry) table[i] = Entry[i]; //clone Entry
@@ -69,6 +77,15 @@ var storago = {};
 
    var schema = function(callback){
 
+     console.log(storago.db);
+     storago.db.transaction(function(tx){
+       for(var m in metadatas){
+         var meta = metadatas[m];
+         var make = new query.Create(meta);
+         console.log(make.render());
+         tx.executeSql(make.render());
+       }
+     });
    };
    storago.syncSchema = schema;
 
@@ -76,6 +93,7 @@ var storago = {};
    var query = {};
    storago.query = {};
 
+   //query.Select class
    var select = function(){
      this._offset = null;
      this._limit = null;
@@ -147,6 +165,39 @@ var storago = {};
 
    select.prototype.toString = function(){
      return this.render();
+   };
+
+   //query.Create class
+   var create = function(meta){
+     this.meta = meta;
+     this.columns = [];
+     this.indexs = [];
+   };
+   query.Create = create;
+
+   create.prototype.parse = function(){
+
+     if(!this.meta.props.hasOwnProperty('id')){
+       this.columns.push('id INTEGER PRIMARY KEY AUTOINCREMENT');
+     }
+
+     for(var name in this.meta.props){
+       var type = this.meta.props[name];
+       this.columns.push(name + ' ' + type.toUpperCase());
+     }
+   };
+
+   create.prototype.render = function(){
+
+     this.parse();
+     var sql = 'CREATE TABLE IF NOT EXISTS ' + this.meta.name + '(';
+     for(var c in this.columns){
+       sql += this.columns[c];
+       if((this.columns.length - 1) != c) sql += ', ';
+     }
+     sql += ');'
+
+     return sql;
    };
 
 }(storago));

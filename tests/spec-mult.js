@@ -7,12 +7,18 @@ describe('DB test', function(){
 
   it('create table', function(){
 
+
+
     var Brand = storago.define('brands', {name: 'text'});
 
     var Car = storago.define('cars', {type: 'text', color: 'text'});
     Car.hasMany('brand', Brand, 'cars');
 
     var Boat = storago.define('boats', {type: 'text', size: 'text'});
+
+    storago.connect('shop_car', '1.0', 'Showrow of cars', 5 * 1024 * 1024);
+    storago.syncSchema();
+
 
     var katamaran = new Boat();
     katamaran.id = 12;
@@ -26,6 +32,7 @@ describe('DB test', function(){
 
     var palio = new Car();
     palio.brand(fiat);
+
 
     //console.log(palio);
 
