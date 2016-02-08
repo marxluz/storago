@@ -1,7 +1,10 @@
 var storago = {};
 ;(function(storago){
 
-  var metadatas = [];
+   //settings
+   storago.debug = false;
+
+   var metadatas = [];
 
    var Metadata = function(){
      this.dependents = {};
@@ -11,14 +14,21 @@ var storago = {};
    var Entry = function(name, prop){};
    Entry.prototype.id = null;
 
-   Entry.prototype.save = function(){
-     var insert = new query.Insert(this._META);
-     insert.add(this);
+   Entry.prototype.save = function(cb){
 
-     console.log(storago.db);
-     storago.db.transaction(function(tx){
-       console.log('oi');
-       insert.execute(tx);
+      var self = this;
+      var insert = new query.Insert(this._META);
+      insert.add(this);
+
+      storago.db.transaction(function(tx){
+         insert.execute(tx, function(tx, result){
+            self.id = result.insertId;
+            if(cb) cb(self);
+
+         },function(tx, err){
+            var msg = "(storago) " + err;
+            throw msg;
+        });
      });
    };
 
@@ -86,29 +96,31 @@ var storago = {};
    };
    storago.define = define;
 
-   var schema = function(callback){
-
-     var transaction = function(index, tx){
-       console.log('passa', index, metadatas.length);
-       var meta = metadatas.length > index ? metadatas[index] : null;
-       if(meta == null) return;
-       var sql  = new query.Create(meta).render();
-       console.log(sql);
-       tx.executeSql(sql, [], function(tran, result){
-         console.log('opa');
-
-         transaction(index + 1, tran);
-       }, function(msg){
-
-         console.log('erroor');
-       });
-     };
+   var schema = function(cb){
 
      storago.db.transaction(function(tx){
-       transaction(0, tx);
+
+        for(var m in metadatas){
+           var meta = metadatas[m];
+           var create = new query.Create(meta);
+           create.execute(tx);
+        }
      });
    };
    storago.syncSchema = schema;
+
+
+   //reset
+   storago.reset = function(){
+
+      storago.db.transaction(function(tx){
+         for(var m in metadatas){
+            var meta = metadatas[m];
+            var drop = new query.Drop(meta);
+            drop.execute(tx);
+         }
+      });
+   };
 
    //query
    var query = {};
@@ -206,6 +218,10 @@ var storago = {};
        var type = this.meta.props[name];
        this.columns.push(name + ' ' + type.toUpperCase());
      }
+
+     for(var name in this.meta.parents){
+        this.columns.push(name + '_id NUMERIC');
+     }
    };
 
    create.prototype.render = function(){
@@ -219,6 +235,12 @@ var storago = {};
      sql += '); '
 
      return sql;
+   };
+
+   create.prototype.execute = function(tx, cb, cbErr){
+      var sql = this.render();
+      if(storago.debug) console.log(sql);
+      tx.executeSql(sql, [], cb, cbErr);
    };
 
    //query.Insert class
@@ -246,6 +268,7 @@ var storago = {};
 
      for(var prop in this.meta.props) this.columns.push(prop);
      for(var parent in this.meta.parents) this.columns.push(parent + '_id');
+
 
      for(var o in this.objects){
        var obj = this.objects[0];
@@ -278,14 +301,27 @@ var storago = {};
        if(o < this.objects.length-1) sql += '), ';
      }
 
-     sql += ');';
+     sql += ')';
      return sql;
    };
 
-   insert.prototype.execute = function(tx){
-     console.log('passa');
-     console.log(this.render(), this.values);
-     //tx.executeSql(this.render(), this.values);
+   insert.prototype.execute = function(tx, cb, cbErr){
+      var values = this.values;
+      var sql = this.render();
+      if(storago.debug) console.log(sql, values);
+      tx.executeSql(sql, values, cb, cbErr);
+   };
+
+   //query.Drop
+   var drop = function(meta){
+      this.meta = meta;
+   };
+   query.Drop = drop;
+
+   drop.prototype.execute = function(tx, cb, cbErr){
+      var sql = 'DROP TABLE ' + this.meta.name;
+      if(storago.debug) console.log(sql);
+      tx.executeSql(sql, cb, cbErr);
    };
 
 }(storago));

@@ -7,7 +7,7 @@ describe('DB test', function(){
 
   it('create table', function(){
 
-    var Boat = storago.define('boats', {type: 'text', size: 'text'});
+    var Boat = storago.define('boats', {type: 'text', size: 'numeric'});
 
     var Brand = storago.define('brands', {name: 'text'});
 
@@ -19,7 +19,7 @@ describe('DB test', function(){
     storago.connect('shop_car', '1.0', 'Showrow of cars', 5 * 1024 * 1024);
     storago.syncSchema();
 
-    /*
+
     var katamaran = new Boat();
     katamaran.id = 12;
 
@@ -37,7 +37,7 @@ describe('DB test', function(){
     palio.color = 'Black';
     palio.brand(fiat);
     palio.save();
-    */
+
     //console.log(palio);
 
 
