@@ -3,7 +3,7 @@ storago.debug = true;
 var Brand = storago.define('brands', {name: 'text'});
 
 var Car = storago.define('cars', {type: 'text', color: 'text'});
-Car.hasMany('brand', Brand, 'cars');
+Brand.hasMany('cars', Car, 'brand');
 
 
 storago.connect('shop_car', '1.0', 'Showrow of cars', 5 * 1024 * 1024);

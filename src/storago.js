@@ -103,26 +103,27 @@ var storago = {};
       return select;
    };
 
-   Entry.hasMany = function(name, parent_entry, many_name){
-      this.META.parents[name] = parent_entry;
-      if(many_name) parent_entry.META.dependents[many_name] = this;
+   Entry.hasMany = function(many_name, child_entry, name){
+      this.META.dependents[many_name] = child_entry;
+      child_entry.META.parents[name] = this;
+      var self = this;
 
-      this.prototype[name] = function(cbORobj){
+      child_entry.prototype[name] = function(item){
 
          var ref_column = name + '_id';
-         if(typeof(cbORobj) == 'function'){// get mode
+         if(typeof(item) == 'function'){// get mode
 
-            parent_entry.find(this[ref_column], cbORobj);
+            self.find(this[ref_column], item);
             return;
 
-         }else if(typeof(cbORobj) == 'object'){ // set mode
+         }else if(typeof(item) == 'object'){ // set mode
 
-            if(cbORobj._TABLE && cbORobj._TABLE.META.name == parent_entry.META.name){
-              this[ref_column] = cbORobj.rowid;
+            if(item._TABLE && item._TABLE.META.name == self.META.name){
+              this[ref_column] = item.rowid;
               return;
             }else{
               var msg = "(storago) No permission: object must be of class(" + parent_entry.META.name + ")" ;
-              msg += ", but is the class(" + cbORobj._TABLE.META.name + ")";
+              msg += ", but is the class(" + item._TABLE.META.name + ")";
               throw msg;
            }
         }
