@@ -16,7 +16,11 @@ storago.schema(function(){
       palio.type = 'SW';
       palio.color = 'Black';
       palio.brand(row);
-      palio.save();
+      palio.save(function(){
+
+
+         console.log(fiat.cars() + '');
+      });
    });
 
    var vw = new Brand();
@@ -27,5 +31,7 @@ storago.schema(function(){
       row.name = 'Ford';
       row.save();
    });
+
+
 
 });

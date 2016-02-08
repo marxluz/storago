@@ -103,14 +103,34 @@ var storago = {};
       return select;
    };
 
+   Entry.all = function(select, cb){
+      if(select == null) select = this.select();
+      var rowset = [];
+      var self = this;
+      storago.db.transaction(function(tx){
+         select.execute(tx, function(tx, result){
+            var rows = result.rows;
+            for(var r = 0; r < rows.length; r++){
+               var row = rows.item(0);
+               var entry = new self();
+               for(var p in row) entry[p] = row[p];
+               entry._DATA = row;
+               rowset.push(entry);
+            }
+            if(cb) cb(rowset);
+         })
+      });
+   };
+
    Entry.hasMany = function(many_name, child_entry, name){
       this.META.dependents[many_name] = child_entry;
       child_entry.META.parents[name] = this;
       var self = this;
+      var ref_column = name + '_id';
 
+      //config child
       child_entry.prototype[name] = function(item){
 
-         var ref_column = name + '_id';
          if(typeof(item) == 'function'){// get mode
 
             self.find(this[ref_column], item);
@@ -127,6 +147,13 @@ var storago = {};
               throw msg;
            }
         }
+     };
+
+     //config parent
+     this.prototype[many_name] = function(){
+        var select = child_entry.select();
+        select.where(ref_column + ' = ?', this.rowid);
+        return select;
      };
    };
 
