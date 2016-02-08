@@ -22,7 +22,7 @@ var storago = {};
       var self = this;
 
       if(this.rowid == null){
-         var insert = new query.Insert(this._META);
+         var insert = new query.Insert(this._TABLE.META);
          insert.add(this);
 
          storago.db.transaction(function(tx){
@@ -40,7 +40,7 @@ var storago = {};
 
          var ondata = function(row){
             var data = row._DATA;
-            var update = new query.Update(self._META);
+            var update = new query.Update(self._TABLE.META);
 
             for(var p in data){
                if(self[p] != data[p]){
@@ -65,10 +65,19 @@ var storago = {};
       }
    };
 
+   Entry.prototype.refresh = function(cb){
+
+      var self = this;
+      this._TABLE.find(this.rowid, function(row){
+         for(var p in row) self[p] = row[p];
+         if(cb) cb();
+      });
+   };
+
    Entry.find = function(id, cb, cbErr){
       var self = this;
       var select = this.select();
-      select.where(this._META.name + '.rowid = ?', id);
+      select.where(this.META.name + '.rowid = ?', id);
       select.limit(1);
       storago.db.transaction(function(tx){
          select.execute(tx, function(tx, result){
@@ -78,51 +87,51 @@ var storago = {};
                var entry = new self();
                entry._DATA = row;
                for(var p in row) entry[p] = row[p];
-               cb(entry);
+               if(cb) cb(entry);
             }
 
         }, function(tx, msg){
+           if(cbErr) cbErr(msg);
            console.log('error', msg);
         });
      });
    };
 
    Entry.select = function(){
-     var select = new query.Select();
-     select.from(this._META.name);
-     return select;
+      var select = new query.Select();
+      select.from(this.META.name);
+      return select;
    };
 
    Entry.hasMany = function(name, parent_entry, many_name){
-     this._META.parents[name] = parent_entry;
-     if(many_name) parent_entry._META.dependents[many_name] = this;
+      this.META.parents[name] = parent_entry;
+      if(many_name) parent_entry.META.dependents[many_name] = this;
 
-     this.prototype[name] = function(cbORobj){
+      this.prototype[name] = function(cbORobj){
 
-       var ref_column = name + '_id';
-       if(typeof(cbORobj) == 'function'){// get mode
+         var ref_column = name + '_id';
+         if(typeof(cbORobj) == 'function'){// get mode
 
-         parent_entry.find(this[ref_column], cbORobj);
-         return;
+            parent_entry.find(this[ref_column], cbORobj);
+            return;
 
-       }else if(typeof(cbORobj) == 'object'){ // set mode
+         }else if(typeof(cbORobj) == 'object'){ // set mode
 
-         if(cbORobj._META && cbORobj._META.name == parent_entry._META.name){
-           this[ref_column] = cbORobj.rowid;
-           return;
-
-         }else{
-           var msg = "(storago) No permission: object must be of class(" + parent_entry._META.name + ")" ;
-           msg += ", but is the class(" + cbORobj._META.name + ")";
-           throw msg;
-         }
-       }
+            if(cbORobj._TABLE && cbORobj._TABLE.META.name == parent_entry.META.name){
+              this[ref_column] = cbORobj.rowid;
+              return;
+            }else{
+              var msg = "(storago) No permission: object must be of class(" + parent_entry.META.name + ")" ;
+              msg += ", but is the class(" + cbORobj._TABLE.META.name + ")";
+              throw msg;
+           }
+        }
      };
    };
 
    //static function connect
    storago.connect = function(name, version, description, size){
-     storago.db = openDatabase(name, version, description, size);
+      storago.db = openDatabase(name, version, description, size);
    };
 
    //static function define
@@ -136,10 +145,9 @@ var storago = {};
      var row = function(){};
      for(var i in Entry) row[i] = Entry[i]; //clone Entry
 
-     row._META = meta;
+     row.META = meta;
      row.prototype = new Entry();
      row.prototype._TABLE = row;
-     row.prototype._META = meta;
 
      return row;
    };
@@ -147,13 +155,21 @@ var storago = {};
    //static function schema
    storago.schema = function(cb){
 
-     storago.db.transaction(function(tx){
+      var oncreate = function(i, tx){
 
-        for(var m in metadatas){
-           var meta = metadatas[m];
-           var create = new query.Create(meta);
-           create.execute(tx);
-        }
+         if(i > (metadatas.length-1)){
+            if(cb) cb();
+            return;
+         }
+         var meta = metadatas[i];
+         var create = new query.Create(meta);
+         create.execute(tx, function(tx){
+            oncreate(i+1, tx);
+         });
+      }
+
+     storago.db.transaction(function(tx){
+        oncreate(0, tx);
      });
    };
 
@@ -175,55 +191,56 @@ var storago = {};
 
    //class query.Select
    var select = function(){
-     this._offset = null;
-     this._limit = null;
-     this._from = null;
-     this._wheres = [];
-     this._joins = [];
-     this._columns = [];
-     this._values = [];
+      this._offset = null;
+      this._limit = null;
+      this._from = null;
+      this._wheres = [];
+      this._joins = [];
+      this._columns = [];
+      this._values = [];
    }
    query.Select = select;
 
    select.prototype.limit = function(limit, offset){
-     this._limit = limit;
-     if(offset) this._offset = offset;
-     return this;
+      this._limit = limit;
+      if(offset) this._offset = offset;
+      return this;
    };
 
    select.prototype.where = function(where, data){
-     this._wheres.push([where, data]);
-     return this;
+      this._wheres.push([where, data]);
+      return this;
    };
 
    select.prototype.from = function(from, columns){
-     this._from = from;
-     if(columns == undefined) columns = ['*'];
-     this._columns.push(from + '.rowid');
-     for(var c in columns) this._columns.push(from + '.' + columns[c]);
-     return this;
+      this._from = from;
+      if(columns == undefined) columns = ['*'];
+      this._columns.push(from + '.rowid');
+      for(var c in columns) this._columns.push(from + '.' + columns[c]);
+      return this;
    };
 
    select.prototype.render = function(){
 
      var sql = 'SELECT';
      for(var c in this._columns){
-       if(c == 0){
-         sql += ' ';
-       }else{
-         sql += ', ';
-       }
-       sql += this._columns[c];
+
+        if(c == 0){
+           sql += ' ';
+        }else{
+           sql += ', ';
+        }
+        sql += this._columns[c];
      }
 
      if(this._from != null) sql += ' FROM ' + this._from;
 
      if(this._wheres.length){
-       sql += ' WHERE ';
-       for(var w in this._wheres){
-         sql += this._wheres[w][0];
-         this._values.push(this._wheres[w][1]);
-       }
+        sql += ' WHERE ';
+        for(var w in this._wheres){
+           sql += this._wheres[w][0];
+           this._values.push(this._wheres[w][1]);
+        }
      }
 
      if(this._limit != null)  sql += ' LIMIT ' + this._limit;
@@ -233,12 +250,8 @@ var storago = {};
      return sql;
    };
 
-   select.prototype.getValues = function(){
-     return this._values;
-   };
-
    select.prototype.toString = function(){
-     return this.render();
+      return this.render();
    };
 
    select.prototype.execute = function(tx, cb, cbErr){
@@ -249,17 +262,17 @@ var storago = {};
 
    //class query.Create
    var create = function(meta){
-     this.meta = meta;
-     this.columns = [];
-     this.indexs = [];
+      this.meta = meta;
+      this.columns = [];
+      this.indexs = [];
    };
    query.Create = create;
 
    create.prototype.parse = function(){
 
      for(var name in this.meta.props){
-       var type = this.meta.props[name];
-       this.columns.push(name + ' ' + type.toUpperCase());
+        var type = this.meta.props[name];
+        this.columns.push(name + ' ' + type.toUpperCase());
      }
 
      for(var name in this.meta.parents){
@@ -297,9 +310,9 @@ var storago = {};
 
    insert.prototype.add = function(obj){
 
-     if(!obj._META || obj._META.name != this.meta.name){
+     if(!obj._TABLE || obj._TABLE.META.name != this.meta.name){
        var msg = "(storago) No permission: object must be of class(" + this.meta.name + ")" ;
-       msg += ", but is the class(" + obj._META.name + ")";
+       msg += ", but is the class(" + obj._TABLE.META.name + ")";
 
        throw msg;
      }
@@ -309,41 +322,42 @@ var storago = {};
 
    insert.prototype.parse = function(){
 
-     for(var prop in this.meta.props) this.columns.push(prop);
-     for(var parent in this.meta.parents) this.columns.push(parent + '_id');
-     for(var o in this.objects){
-       var obj = this.objects[0];
-       for(c in this.columns){
-         var column = this.columns[c];
-         this.values.push(obj[column]);
-       }
-     }
+      this.values = [];
+      for(var prop in this.meta.props) this.columns.push(prop);
+      for(var parent in this.meta.parents) this.columns.push(parent + '_id');
+      for(var o in this.objects){
+         var obj = this.objects[0];
+         for(c in this.columns){
+            var column = this.columns[c];
+            this.values.push(obj[column]);
+        }
+      }
    };
 
    insert.prototype.render = function(){
 
-     this.parse();
-     var sql = 'INSERT INTO ' + this.meta.name + ' (';
+      this.parse();
+      var sql = 'INSERT INTO ' + this.meta.name + ' (';
 
-     for(var c in this.columns){
-       sql += this.columns[c];
-       if(c < this.columns.length-1) sql += ',';
-     }
-
-     sql += ') VALUES (';
-
-     for(var o in this.objects){
-       var obj = this.objects[0];
-       for(c in this.columns){
-         var column = this.columns[c];
-         sql += '?';
+      for(var c in this.columns){
+         sql += this.columns[c];
          if(c < this.columns.length-1) sql += ', ';
-       }
-       if(o < this.objects.length-1) sql += '), ';
-     }
+      }
 
-     sql += ')';
-     return sql;
+      sql += ') VALUES (';
+
+      for(var o in this.objects){
+         var obj = this.objects[0];
+         for(c in this.columns){
+            var column = this.columns[c];
+            sql += '?';
+            if(c < this.columns.length-1) sql += ', ';
+         }
+         if(o < this.objects.length-1) sql += '), ';
+      }
+
+      sql += ')';
+      return sql;
    };
 
    insert.prototype.execute = function(tx, cb, cbErr){
@@ -362,18 +376,20 @@ var storago = {};
    query.Update = update;
 
    update.prototype.set = function(column, value){
-      this.columns.push(column);
-      this.values.push(value);
+      this.columns.push([column, value]);
    };
 
    update.prototype.render = function(){
 
+      this.values = [];
       if(this.columns.length == 0) return null;
 
       var sql = 'UPDATE ' + this.meta.name + ' ';
 
       for(var c in this.columns){
-         sql += 'SET ' + this.columns[c] + ' = ?';
+         var column = this.columns[c];
+         sql += 'SET ' + column[0] + ' = ?';
+         this.values.push(column[1]);
          if((this.columns.length - 1) != c) sql += ', ';
       }
 
@@ -396,7 +412,10 @@ var storago = {};
 
    update.prototype.execute = function(tx, cb, cbErr){
       var sql = this.render();
-      if(sql == null) return;
+      if(sql == null){
+         if(cb) cb(tx);
+         return;
+      }
       if(storago.debug) console.log(sql, this.values);
       tx.executeSql(sql, this.values, cb, cbErr);
    };

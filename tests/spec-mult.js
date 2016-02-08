@@ -17,7 +17,7 @@ describe('DB test', function(){
 
 
     storago.connect('shop_car', '1.0', 'Showrow of cars', 5 * 1024 * 1024);
-    storago.syncSchema();
+    storago.sync();
 
 
     var katamaran = new Boat();
