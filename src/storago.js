@@ -171,7 +171,7 @@ var storago = {};
 
    //package query
    var query = {};
-   storago.query = {};
+   storago.query = query;
 
    //class query.Select
    var select = function(){

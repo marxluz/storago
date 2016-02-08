@@ -26,8 +26,6 @@ vw.name = 'Volkswagen';
 vw.save();
 
 Brand.find(1, function(row){
-
-   console.log(row.name);
    row.name = 'Ford';
    row.save();
 });
