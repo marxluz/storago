@@ -7,7 +7,7 @@ Car.hasMany('brand', Brand, 'cars');
 
 
 storago.connect('shop_car', '1.0', 'Showrow of cars', 5 * 1024 * 1024);
-storago.syncSchema();
+storago.schema();
 
 
 //console.log(car._META.parents);
@@ -24,3 +24,10 @@ fiat.save(function(row){
 var vw = new Brand();
 vw.name = 'Volkswagen';
 vw.save();
+
+Brand.find(1, function(row){
+
+   console.log(row.name);
+   row.name = 'Ford';
+   row.save();
+});
