@@ -98,12 +98,19 @@ var storago = {};
    };
 
    Entry.select = function(){
-      var select = new query.Select();
-      select.from(this.META.name);
+      var select = new query.Select(this.META);
       return select;
    };
 
    Entry.all = function(select, cb){
+
+      if(select && select.meta.name != this.META.name){
+         var msg = "(storago) No permission: select must be of class(" + select.meta.name + ")" ;
+         msg += ", but is the class(" + this.META.name + ")";
+         throw msg;
+         return;
+      }
+
       if(select == null) select = this.select();
       var rowset = [];
       var self = this;
@@ -111,7 +118,7 @@ var storago = {};
          select.execute(tx, function(tx, result){
             var rows = result.rows;
             for(var r = 0; r < rows.length; r++){
-               var row = rows.item(0);
+               var row = rows.item(r);
                var entry = new self();
                for(var p in row) entry[p] = row[p];
                entry._DATA = row;
@@ -218,7 +225,8 @@ var storago = {};
    storago.query = query;
 
    //class query.Select
-   var select = function(){
+   var select = function(meta){
+      this.meta = meta;
       this._offset = null;
       this._limit = null;
       this._from = null;
@@ -249,6 +257,8 @@ var storago = {};
    };
 
    select.prototype.render = function(){
+
+     if(this._from == null && this.meta) this.from(this.meta.name);
 
      var sql = 'SELECT';
      for(var c in this._columns){
@@ -354,7 +364,7 @@ var storago = {};
       for(var prop in this.meta.props) this.columns.push(prop);
       for(var parent in this.meta.parents) this.columns.push(parent + '_id');
       for(var o in this.objects){
-         var obj = this.objects[0];
+         var obj = this.objects[o];
          for(c in this.columns){
             var column = this.columns[c];
             this.values.push(obj[column]);
