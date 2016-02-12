@@ -5,7 +5,8 @@ var storago = {};
    storago.debug = false;
 
    //local property
-   var models = [];
+   var tables = [];
+   var __tables = tables;
 
    //local function
    var Metadata = function(){
@@ -17,6 +18,7 @@ var storago = {};
    //class Entry
    var Entry = function(name, prop){};
    Entry.prototype.rowid = null;
+   var __Entry = Entry;
 
    Entry.prototype.save = function(cb, cbErr){
 
@@ -55,7 +57,7 @@ var storago = {};
 
             storago.db.transaction(function(tx){
                update.execute(tx, cb, function(tx, err){
-                  var msg = "(storago) " + err;
+                  var msg = "(storago) " + err.message;
                   throw msg;
                });
             });
@@ -129,7 +131,7 @@ var storago = {};
         get: function(){
            var select = child_entry.select();
            select.where(ref_column + ' = ?', this.rowid);
-           return select;  
+           return select;
         }
      });
    };
@@ -142,17 +144,17 @@ var storago = {};
    //static function define
    storago.define = function(name, props){
 
-     var meta = new Metadata();
-     meta.name = name;
-     meta.props = props;
+     var __meta = new Metadata();
+     __meta.name = name;
+     __meta.props = props;
 
-     var row = function(){};
-     for(var i in Entry) row[i] = Entry[i]; //clone Entry
+     eval("var row = function " + name +"(){};");
+     for(var i in __Entry) row[i] = __Entry[i]; //clone Entry
 
-     row.META = meta;
-     row.prototype = new Entry();
+     row.META = __meta;
+     row.prototype = new __Entry();
      row.prototype._TABLE = row;
-     tables.add(row);
+     __tables.push(row);
 
      return row;
    };
@@ -207,6 +209,8 @@ var storago = {};
       this._columns = [];
       this._values = [];
       this._orders = [];
+      this._groups = [];
+      this._havings = [];
    }
    query.Select = select;
 
@@ -301,12 +305,16 @@ var storago = {};
             var rows = result.rows;
             for(var r = 0; r < rows.length; r++){
                var row = rows.item(r);
-               var table = this.table;
+               var table = self.table;
                var entry = new table();
-               for(var p in row) entry[p] = row[p];
+               var props = self.table.META.props
+               for(var p in row){
+                   entry[p] = tools.dbToField(props[p], row[p]);
+               }
                entry._DATA = row;
                rowset.push(entry);
             }
+            if(storago.debug) console.log(rowset);
             if(cb) cb(rowset);
             return;
          }, function(tx, err){
@@ -332,10 +340,16 @@ var storago = {};
    // Private package tools
    var tools = {};
    tools.fieldToDb = function(type, value){
-
+       
        if(value == undefined)    return null;
        if(value instanceof Date) return value.getIso();
        if(typeof(value) == 'function') throw 'Function seted like property: ' + value;
+       return value;
+   };
+
+   tools.dbToField = function(type, value){
+
+       if(type == 'DATE') return new Date(value);
        return value;
    };
 
@@ -502,15 +516,18 @@ var storago = {};
 
    update.prototype.render = function(){
 
+      var props = this.table.META.props;
+
       this.values = [];
       if(this.columns.length == 0) return null;
 
-      var sql = 'UPDATE ' + this.table.META.name + ' ';
+      var sql = 'UPDATE ' + this.table.META.name + ' SET ';
 
       for(var c in this.columns){
          var column = this.columns[c];
-         sql += 'SET ' + column[0] + ' = ?';
-         this.values.push(column[1]);
+         sql += column[0] + ' = ?';
+         var value = tools.fieldToDb(props[column[0]], column[1]);
+         this.values.push(value);
          if((this.columns.length - 1) != c) sql += ', ';
       }
 
@@ -518,7 +535,7 @@ var storago = {};
          sql += ' WHERE ';
          for(var w in this.wheres){
             var where = this.wheres[w];
-            var value = where[1];
+            var value = tools.fieldToDb(props[where[0]], where[1]);
             if(value != undefined) this.values.push(value);
             sql += where[0];
             if((this.wheres.length - 1) != w) sql += ' AND ';
