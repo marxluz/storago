@@ -242,6 +242,13 @@ var storago = {};
       return this;
    };
 
+   select.prototype.join = function(name, on, columns){
+
+      if(columns == undefined) columns = [name + '*'];
+      this._joins.push([name, on]);
+      this._columns.concat(columns);
+   };
+
    select.prototype.render = function(){
 
      if(this._from == null && this.table) this.from(this.table.META.name);
@@ -258,6 +265,14 @@ var storago = {};
      }
 
      if(this._from != null) sql += ' FROM ' + this._from;
+
+     if(this._joins.length){
+        var size = this._joins.length;
+        for(var j in this._joins){
+           var join = this._joins[j];
+           sql += ' JOIN ' + join[0] + ' ON ' + join[1];
+        }
+     }
 
      if(this._wheres.length){
         sql += ' WHERE ';
@@ -340,7 +355,7 @@ var storago = {};
    // Private package tools
    var tools = {};
    tools.fieldToDb = function(type, value){
-       
+
        if(value == undefined)    return null;
        if(value instanceof Date) return value.getIso();
        if(typeof(value) == 'function') throw 'Function seted like property: ' + value;
