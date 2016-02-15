@@ -230,6 +230,7 @@ var storago = {};
    };
 
    select.prototype.where = function(where, data){
+      if(!Array.isArray(data) && data != undefined) data = [data];
       this._wheres.push([where, data]);
       return this;
    };
@@ -282,7 +283,8 @@ var storago = {};
            if((this._wheres.length - 1) != w) sql += ' AND ';
 
            var value = where[1];
-           if(value != undefined) this._values.push(value);
+           console.log(value);
+           if(value != undefined) this._values = this._values.concat(value);
         }
      }
 
@@ -551,7 +553,7 @@ var storago = {};
          for(var w in this.wheres){
             var where = this.wheres[w];
             var value = tools.fieldToDb(props[where[0]], where[1]);
-            if(value != undefined) this.values.push(value);
+            if(value != undefined) this.values = this.values.concat(value);
             sql += where[0];
             if((this.wheres.length - 1) != w) sql += ' AND ';
          }
@@ -562,6 +564,7 @@ var storago = {};
 
    update.prototype.where = function(where, value){
 
+      if(!Array.isArray(value) && value != undefined) value = [value];
       this.wheres.push([where, value]);
    };
 
