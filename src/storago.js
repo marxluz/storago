@@ -6,6 +6,7 @@ var storago = {};
 
    //local property
    var tables = [];
+   var __tables2 = [];
    var __tables = tables;
 
    //local function
@@ -155,6 +156,7 @@ var storago = {};
      row.prototype = new __Entry();
      row.prototype._TABLE = row;
      __tables.push(row);
+     __tables2.push(row);
 
      return row;
    };
@@ -162,24 +164,29 @@ var storago = {};
    //static function schema
    storago.schema = function(cb){
 
-      var oncreate = function(i, tx){
+      var ts = [];
 
-         if(i > (tables.length-1)){
-            if(cb) cb();
-            return;
-         }
-         var table = tables[i];
-         var create = new query.Create(table);
-         var index  = new query.Index(table);
-         create.execute(tx, function(tx){
-             index.execute(tx, function(tx){
-                 oncreate(i+1, tx);
+      var oncreate = function(tx){
+
+         var table = __tables2.pop();
+
+         if(table){
+             var create = new query.Create(table);
+             create.execute(tx, function(tx){
+                 var index  = new query.Index(table);
+                 index.execute(tx, function(tx){
+                     oncreate(tx);
+                     ts.push(table);
+                 });
              });
-         });
+         }else{
+             cb();
+             return;
+         }
       }
 
      storago.db.transaction(function(tx){
-        oncreate(0, tx);
+        oncreate(tx);
      });
    };
 
@@ -393,7 +400,10 @@ var storago = {};
    index.prototype.execute = function(tx, cb, cbErr){
 
        this.render();
-       if(this.indexs.length == 0) cb(tx);
+       if(this.indexs.length == 0){
+           cb(tx);
+           return;
+       }
        var self = this;
 
        var onindex = function(i){
