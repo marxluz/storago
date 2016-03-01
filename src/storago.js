@@ -72,6 +72,20 @@ var storago = {};
       }
    };
 
+   Entry.prototype.delete = function(cb, errCb){
+
+       var query = query.Delete(this._TABLE);
+       query.where(this._TABLE.name + '.rowid = ?', this.rowid);
+
+       storago.db.transaction(function(tx){
+           query.execute(tx, cb, function(tx, err){
+               if(errCb != undefined) return errCb(err);
+               var msg = "(storago) " + err.message;
+               throw msg;
+           });
+       });
+   }
+
    Entry.prototype.refresh = function(cb){
       var self = this;
       this._TABLE.find(this.rowid, function(row){
@@ -191,12 +205,12 @@ var storago = {};
    };
 
    //static function reset
-   storago.reset = function(){
+   storago.reset = function(cb){
       storago.db.transaction(function(tx){
          for(var t in tables){
             var table = tables[t];
             var drop = new query.Drop(table);
-            drop.execute(tx);
+            drop.execute(tx, cb);
          }
       });
    };
@@ -288,9 +302,7 @@ var storago = {};
            var where = this._wheres[w];
            sql += where[0];
            if((this._wheres.length - 1) != w) sql += ' AND ';
-
            var value = where[1];
-           console.log(value);
            if(value != undefined) this._values = this._values.concat(value);
         }
      }
@@ -522,6 +534,50 @@ var storago = {};
    insert.prototype.execute = function(tx, cb, cbErr){
 
       var sql = this.render();
+      if(storago.debug) console.log(sql, this.values);
+      tx.executeSql(sql, this.values, cb, cbErr);
+   };
+
+   //class query.Delete
+   var del = function(table){
+      this.table = table;
+      this.wheres = [];
+      this.values = [];
+   };
+   query.Delete = del;
+
+   del.prototype.where = function(where, value){
+
+      if(!Array.isArray(value) && value != undefined) value = [value];
+      this.wheres.push([where, value]);
+   };
+
+   del.prototype.render = function(){
+
+     var props = this.table.META.props;
+
+     this.values = [];
+
+     var sql = 'DELETE FROM ' + this.table.META.name;
+
+     if(this.wheres.length){
+        sql += ' WHERE ';
+        for(var w in this.wheres){
+           var where = this.wheres[w];
+           var value = tools.fieldToDb(props[where[0]], where[1]);
+           if(value != undefined) this.values = this.values.concat(value);
+           sql += where[0];
+           if((this.wheres.length - 1) != w) sql += ' AND ';
+        }
+     }
+
+     return sql;
+   };
+
+   del.prototype.execute = function(tx, cb, cbErr){
+
+      var sql = this.render();
+      if(sql == null){ if(cb) cb(tx); return; }
       if(storago.debug) console.log(sql, this.values);
       tx.executeSql(sql, this.values, cb, cbErr);
    };
