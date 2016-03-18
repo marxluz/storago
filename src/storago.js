@@ -1,3 +1,4 @@
+"use strict";
 var storago = {};
 ;(function(storago){
 
@@ -8,6 +9,8 @@ var storago = {};
    var tables = [];
    var __tables2 = [];
    var __tables = tables;
+   var __migrations = {};
+   var __dbVersion = '';
 
    //local function
    var Metadata = function(){
@@ -38,7 +41,7 @@ var storago = {};
                if(cbErr){
                  cbErr(err);
                }else{
-                 var msg = "(storago) " + err;
+                 var msg = "(storago) " + err.message;
                  throw msg;
                }
             });
@@ -50,7 +53,8 @@ var storago = {};
             var update = new query.Update(self._TABLE);
 
             for(var p in data){
-               if(self[p] != data[p]){
+               var self_p = tools.fieldToDb(null, self[p]);
+               if(self_p != data[p]){
                   update.set(p, self[p]);
                }
             }
@@ -153,7 +157,8 @@ var storago = {};
 
    //static function connect
    storago.connect = function(name, version, description, size){
-      storago.db = openDatabase(name, version, description, size);
+      __dbVersion = version;
+      storago.db = openDatabase(name, '', description, size);
    };
 
    //static function define
@@ -163,7 +168,8 @@ var storago = {};
      __meta.name = name;
      __meta.props = props;
 
-     eval("var row = function " + name +"(){};");
+     var row;
+     eval("row = function " + name +"(){};");
      for(var i in __Entry) row[i] = __Entry[i]; //clone Entry
 
      row.META = __meta;
@@ -175,13 +181,18 @@ var storago = {};
      return row;
    };
 
+   storago.migration = function(number, migreFunc){
+
+        __migrations[number] = migreFunc;
+   }
+
    //static function schema
    storago.schema = function(cb){
 
       var ts = [];
+      var self = this;
 
-      var oncreate = function(tx){
-
+      var oncreate = function(tx, onCb){
          var table = __tables2.pop();
 
          if(table){
@@ -189,18 +200,44 @@ var storago = {};
              create.execute(tx, function(tx){
                  var index  = new query.Index(table);
                  index.execute(tx, function(tx){
-                     oncreate(tx);
+                     oncreate(tx, onCb);
                      ts.push(table);
                  });
              });
          }else{
-             cb();
-             return;
+             return onCb();
          }
       }
 
+      var migreTo = function(version, onCb){
+
+          if(__migrations[version]){
+              console.log(storago.db.version, version);
+              storago.db.changeVersion(storago.db.version, String(version), function(t){
+                  __migrations[version](t);
+              }, function(err){
+                  throw "(Storago)" + err.message;
+              }, function(){
+                 migreTo(version + 1, onCb);
+              });
+          }else{
+              //__migrations = {}; //clear migrations
+              onCb();
+          }
+      }
+
      storago.db.transaction(function(tx){
-        oncreate(tx);
+         console.log(__migrations);
+         window.mm = __migrations;
+        oncreate(tx, function(){
+            var version = parseInt(storago.db.version) || 0;
+            if(version == ''){
+                storago.db.changeVersion('', __dbVersion, undefined, undefined, cb);
+            }else{
+                return migreTo(version + 1, cb);
+            }
+
+        });
      });
    };
 
@@ -385,7 +422,7 @@ var storago = {};
 
    tools.dbToField = function(type, value){
 
-       if(type == 'DATE') return new Date(value);
+       if(value && (type == 'DATE' || type == 'DATETIME')) return new Date(value);
        return value;
    };
 
@@ -497,7 +534,7 @@ var storago = {};
       for(var parent in this.table.META.parents) this.columns.push(parent + '_id');
       for(var o in this.objects){
          var obj = this.objects[o];
-         for(c in this.columns){
+         for(var c in this.columns){
             var column = this.columns[c];
             var type = this.table.META.props[column];
             this.values.push(tools.fieldToDb(type, obj[column]));
