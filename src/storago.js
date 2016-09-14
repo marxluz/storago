@@ -1,4 +1,4 @@
-"use strict";
+/*"use strict";*/
 var storago = {};
 ;(function(storago){
 
@@ -10,7 +10,7 @@ var storago = {};
    var __tables2 = [];
    var __tables = tables;
    var __migrations = {};
-   var __dbVersion = '';
+   var __migrations_number = [0];
 
    //local function
    var Metadata = function(){
@@ -98,6 +98,14 @@ var storago = {};
       });
    };
 
+   Entry.info = function(cb, cbErr){
+       var self = this;
+       storago.db.transaction(function(tx){
+           var info = new query.Info(self);
+           info.execute(tx, cb, cbErr);
+       });
+   };
+
    Entry.find = function(rowid, cb, cbErr){
      this.findBy('rowid', rowid, cb, cbErr);
    };
@@ -125,11 +133,11 @@ var storago = {};
       var ref_column = name + '_id';
 
       //config child
-      child_entry.prototype[name] = function(item){
+      child_entry.prototype[name] = function(item, cbErr){
 
          if(typeof(item) == 'function'){// get mode
 
-            self.find(this[ref_column], item);
+            self.find(this[ref_column], item, cbErr);
             return;
 
          }else if(typeof(item) == 'object'){ // set mode
@@ -156,8 +164,7 @@ var storago = {};
    };
 
    //static function connect
-   storago.connect = function(name, version, description, size){
-      __dbVersion = version;
+   storago.connect = function(name, description, size){
       storago.db = openDatabase(name, '', description, size);
    };
 
@@ -181,9 +188,13 @@ var storago = {};
      return row;
    };
 
-   storago.migration = function(number, migreFunc){
-
-        __migrations[number] = migreFunc;
+   storago.migration = function(number, migreFunc, migreErr){
+       if(__migrations_number.indexOf(number) >= 0){
+           throw "(storago) Migration " + number + " already exists";
+       }
+       __migrations_number.push(number);
+       __migrations_number.sort(function(a, b){ a - b});
+        __migrations[number] = [migreFunc, migreErr];
    }
 
    //static function schema
@@ -211,30 +222,34 @@ var storago = {};
 
       var migreTo = function(version, onCb){
 
-          if(__migrations[version]){
+          if(version && __migrations[version]){
               console.log(storago.db.version, version);
               storago.db.changeVersion(storago.db.version, String(version), function(t){
-                  __migrations[version](t);
+                  __migrations[version][0](t);
               }, function(err){
-                  throw "(Storago)" + err.message;
+                  if(__migrations[version].hasOwnProperty(1)) return __migrations[version][1](err);
+                  throw "(Storago) " + err.message;
               }, function(){
-                 migreTo(version + 1, onCb);
+                 migreTo(__migrations_number.pop(), onCb);
               });
           }else{
-              //__migrations = {}; //clear migrations
+              __migrations = {}; //clear migrations
               onCb();
           }
       }
 
      storago.db.transaction(function(tx){
-         console.log(__migrations);
-         window.mm = __migrations;
         oncreate(tx, function(){
-            var version = parseInt(storago.db.version) || 0;
+            var version = parseInt(storago.db.version) || '';
             if(version == ''){
-                storago.db.changeVersion('', __dbVersion, undefined, undefined, cb);
+                var db_version = __migrations_number[__migrations_number.length-1];
+                storago.db.changeVersion('', db_version, undefined, undefined, cb);
             }else{
-                return migreTo(version + 1, cb);
+                var index = __migrations_number.indexOf(version);
+                if(index < 0) throw "(storago) Version " + version + " no have on migration list";
+                __migrations_number = __migrations_number.slice(index).reverse();
+                __migrations_number.pop(); //Discart current version
+                return migreTo(__migrations_number.pop(), cb);
             }
 
         });
@@ -310,6 +325,7 @@ var storago = {};
 
    select.prototype.render = function(){
 
+     this._values = [];
      if(this._from == null && this.table) this.from(this.table.META.name);
 
      var sql = 'SELECT';
@@ -388,6 +404,7 @@ var storago = {};
                rowset.push(entry);
             }
             if(storago.debug) console.log(rowset);
+            if(typeof(cb) != 'function') throw "(storago) is not a function, " + typeof(cb) + " given";
             if(cb) cb(rowset);
             return;
          }, function(tx, err){
@@ -406,6 +423,8 @@ var storago = {};
       this.limit(1);
       this.all(function(rowset){
          if(rowset.length == 0){ cb(null); return; };
+         if(cb == undefined) throw "(storago) callback undefined";
+         if(typeof(cb) != 'function') throw "(storago) is not a function, " + typeof(cb) + " given";
          cb(rowset[0]);
       }, cbErr);
    };
@@ -505,6 +524,29 @@ var storago = {};
       var sql = this.render();
       if(storago.debug) console.log(sql);
       tx.executeSql(sql, [], cb, cbErr);
+   };
+
+   //class query.Info
+   var info = function(table){
+       this.table = table;
+   };
+   query.Info = info;
+
+   info.prototype.execute = function(tx, cb, cbErr){
+
+      var sql = "PRAGMA table_info(\"" + this.table.META.name + "\")";
+      if(storago.debug) console.log(sql);
+      tx.executeSql(sql, [], function(rowset){
+          var columns = {};
+          for(var r in rowset){
+              var row = rowset[r];
+              columns[row.name] = row.type;
+          };
+
+          if(storago.debug) console.log(columns);
+          cb(columns);
+
+      }, cbErr);
    };
 
    //class query.Insert
@@ -689,7 +731,23 @@ var storago = {};
    drop.prototype.execute = function(tx, cb, cbErr){
       var sql = 'DROP TABLE ' + this.table.META.name;
       if(storago.debug) console.log(sql);
-      tx.executeSql(sql, cb, cbErr);
+      tx.executeSql(sql, [], cb, cbErr);
+   };
+
+   //class query.Truncate
+   var truncate = function(table){
+
+      this.table = table;
+   };
+   query.Truncate = truncate;
+
+   truncate.prototype.execute = function(tx, cb, cbErr){
+
+       var drop = new query.Drop(this.table);
+       var create = new query.Create(this.table);
+       drop.execute(tx, function(){
+           create.execute(tx, cb, cbErr);
+       }, cbErr);
    };
 
 }(storago));
