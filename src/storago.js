@@ -1,5 +1,6 @@
 "use strict";
 var storago = {};
+module.exports = storago;
 ;(function(storago){
 
    //static property
@@ -21,21 +22,37 @@ var storago = {};
 
    //class Entry
    var Entry = function(name, prop){};
+   storago.Entry = Entry;
    Entry.prototype.rowid = null;
    var __Entry = Entry;
 
+   Entry.prototype.pre_save = function(cb, cbErr){ return cb(); };
+
+   Entry.prototype.post_save = function(cb, cbErr){ return cb(); };
+
    Entry.prototype.save = function(cb, cbErr){
+
+     var self = this;
+     this.pre_save.call(self, function(){
+       self._save(function(row, tx){
+
+         self.post_save.call(self, function(){ cb(row, tx); }, cbErr)
+       }, cbErr)
+     }, cbErr);
+   };
+
+   Entry.prototype._save = function(cb, cbErr){
 
       var self = this;
 
-      if(this.rowid == null){
+      if(!this.rowid){
 
          var insert = new query.Insert(this._TABLE);
          insert.add(this);
          storago.db.transaction(function(tx){
             insert.execute(tx, function(tx, result){
                self.rowid = result.insertId;
-               if(cb) cb(self);
+               if(cb) cb(self, tx);
 
             },function(tx, err){
                if(cbErr){
@@ -61,7 +78,7 @@ var storago = {};
             update.where('rowid = ?', row.rowid);
 
             storago.db.transaction(function(tx){
-               update.execute(tx, cb, function(tx, err){
+               update.execute(tx, function(tx){ cb(self, tx); }, function(tx, err){
                   var msg = "(storago) " + err.message;
                   throw msg;
                });
@@ -76,13 +93,19 @@ var storago = {};
       }
    };
 
+   Entry.prototype.put = function(data){
+       for(var d in data){
+         this[d] = data[d];
+       };
+   };
+
    Entry.prototype.delete = function(cb, errCb){
 
-       var query = query.Delete(this._TABLE);
-       query.where(this._TABLE.name + '.rowid = ?', this.rowid);
+       var del = new query.Delete(this._TABLE);
+       del.where(this._TABLE.name + '.rowid = ?', this.rowid);
 
        storago.db.transaction(function(tx){
-           query.execute(tx, cb, function(tx, err){
+           del.execute(tx, cb, function(tx, err){
                if(errCb != undefined) return errCb(err);
                var msg = "(storago) " + err.message;
                throw msg;
@@ -96,6 +119,17 @@ var storago = {};
          for(var p in row) self[p] = row[p];
          if(cb) cb();
       });
+   };
+
+   Entry.hasColumn = function(column, cb, cbErr){
+
+     var self = this;
+     storago.db.transaction(function(tx){
+         var info = new query.InfoWEB(self);
+         info.execute(tx, function(row){
+           cb(row.hasOwnProperty(column));
+         }, cbErr);
+     });
    };
 
    Entry.info = function(cb, cbErr){
@@ -135,10 +169,18 @@ var storago = {};
       //config child
       child_entry.prototype[name] = function(item, cbErr){
 
-         if(typeof(item) == 'function'){// get mode
+         if(typeof(item) == 'function'){ // get mode
 
-            self.find(this[ref_column], item, cbErr);
+            var ref_col = this[ref_column];
+            if(!ref_col) return item(null);
+
+            self.find(ref_col, item, cbErr);
             return;
+
+         }else if(!item){
+
+           this[ref_column] = null;
+           return;
 
          }else if(typeof(item) == 'object'){ // set mode
 
@@ -146,8 +188,8 @@ var storago = {};
               this[ref_column] = item.rowid;
               return;
             }else{
-              var msg = "(storago) No permission: object must be of class(" + self.META.name + ")" ;
-              msg += ", but is the class(" + item._TABLE.META.name + ")";
+              var msg = "(storago) No permission: object must be class of (" + self.META.name + ")" ;
+              msg += ", but is the class (" + item._TABLE.META.name + ")";
               throw msg;
            }
         }
@@ -221,7 +263,6 @@ var storago = {};
       }
 
       var migreTo = function(version, onCb){
-
           if(version && __migrations[version]){
               console.log(storago.db.version, version);
               storago.db.changeVersion(storago.db.version, String(version), function(t){
@@ -241,9 +282,10 @@ var storago = {};
      storago.db.transaction(function(tx){
         oncreate(tx, function(){
             var version = parseInt(storago.db.version) || '';
-            if(version == ''){
+            if(version === ''){
                 var db_version = __migrations_number[__migrations_number.length-1];
-                storago.db.changeVersion('', db_version, undefined, undefined, cb);
+                if(db_version == 0) return cb();
+                storago.db.changeVersion('', db_version, cb);
             }else{
                 var index = __migrations_number.indexOf(version);
                 if(index < 0) throw "(storago) Version " + version + " no have on migration list";
@@ -435,7 +477,7 @@ var storago = {};
 
        if(value == undefined)    return null;
        if(value instanceof Date) return value.getIso();
-       if(typeof(value) == 'function') throw 'Function seted like property: ' + value;
+       if(typeof(value) == 'function') throw '(storago) function has been setted like property: ' + value;
        return value;
    };
 
@@ -548,6 +590,22 @@ var storago = {};
 
       }, cbErr);
    };
+
+   var infoWEB = function(table){
+      this.table = table;
+   };
+
+   infoWEB.prototype.execute = function(tx, cb, cbErr){
+
+     var table_name = this.table.META.name
+     var sql = "select " +  table_name + ".* from sqlite_master left join " + table_name + " on 1=1 limit 1";
+     if(storago.debug) console.log(sql);
+     tx.executeSql(sql, null, function(tx, result){
+       var row = result.rows[0];
+       return cb(row);
+     }, cbErr);
+   }
+   query.InfoWEB = infoWEB;
 
    //class query.Insert
    var insert = function(table){
