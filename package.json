@@ -1,6 +1,6 @@
 {
   "name": "storago",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "A simple WebSQL ORM",
   "main": "src/storago.js",
   "scripts": {
