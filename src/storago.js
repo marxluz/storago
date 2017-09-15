@@ -21,7 +21,7 @@ module.exports = storago;;
   };
 
   //class Entry
-  var Entry = function(name, prop) {};
+  var Entry = function(name, prop){};
   storago.Entry = Entry;
   Entry.prototype.rowid = null;
   var __Entry = Entry;
@@ -150,6 +150,40 @@ module.exports = storago;;
     });
   };
 
+  Entry.findMemory = function(id, cb, cbErr){
+
+    var self = this;
+
+    if(!this._memory){
+      this._memory = {};
+    }
+
+    if(!this._memory.hasOwnProperty(id)){
+      this._memory[id] = [];
+    }
+
+    this._memory[id].push([cb, cbErr]);
+    if(this._memory[id].length > 1) return;
+
+    this.find(id, function(row){
+    
+      var func = null;
+      while(func = self._memory[id].pop()){
+      
+        func[0](row);
+      }
+
+    }, function(e){
+
+      var func = null;
+      while(func = self._memory[id].pop()){
+
+        var cbErr = func[1];
+        if(typeof cbErr == 'function') cbErr(e);
+      }
+    });
+  };
+
   Entry.find = function(rowid, cb, cbErr) {
 
     if(!rowid) return cb(null);
@@ -186,7 +220,7 @@ module.exports = storago;;
         var ref_col = this[ref_column];
         if (!ref_col) return item(null);
 
-        self.find(ref_col, item, cbErr);
+        self.findMemory(ref_col, item, cbErr);
         return;
 
       } else if (!item) {
@@ -247,9 +281,7 @@ module.exports = storago;;
       throw "(storago) Migration " + number + " already exists";
     }
     __migrations_number.push(number);
-    __migrations_number.sort(function(a, b) {
-      a - b
-    });
+    __migrations_number.sort(function(a, b){ return a - b });
     __migrations[number] = [migreFunc, migreErr];
   }
 
