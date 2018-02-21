@@ -291,7 +291,8 @@ module.exports = storago;;
     var ts = [];
     var self = this;
 
-    var oncreate = function(tx, onCb) {
+    var _create = function(tx, onCb){
+    
       var table = __tables2.pop();
 
       if (table) {
@@ -299,13 +300,22 @@ module.exports = storago;;
         create.execute(tx, function(tx) {
           var index = new query.Index(table);
           index.execute(tx, function(tx) {
-            oncreate(tx, onCb);
+            _create(tx, onCb);
             ts.push(table);
           });
         });
+
       } else {
+
         return onCb();
       }
+    }
+
+    var oncreate = function(onCb){
+
+      storago.db.transaction(function(tx){
+        _create(tx, onCb);
+      });
     }
 
     var migreTo = function(version, onCb) {
@@ -325,23 +335,19 @@ module.exports = storago;;
       }
     }
 
-    storago.db.transaction(function(tx) {
-      oncreate(tx, function() {
-        var version = parseInt(storago.db.version) || '';
-        if (version === '') {
-          var db_version = __migrations_number[__migrations_number.length - 1];
-          if (db_version == 0) return cb();
-          storago.db.changeVersion('', db_version, cb);
-        } else {
-          var index = __migrations_number.indexOf(version);
-          if (index < 0) throw "(storago) Version " + version + " no have on migration list";
-          __migrations_number = __migrations_number.slice(index).reverse();
-          __migrations_number.pop(); //Discart current version
-          return migreTo(__migrations_number.pop(), cb);
-        }
+    var version = parseInt(storago.db.version) || '';
+    if (version === '') {
+      var db_version = __migrations_number[__migrations_number.length - 1];
+      if (db_version == 0) return oncreate(cb);
+      storago.db.changeVersion('', db_version, function(){ oncreate(cb); });
 
-      });
-    });
+    } else {
+      var index = __migrations_number.indexOf(version);
+      if (index < 0) throw "(storago) Version " + version + " no have on migration list";
+      __migrations_number = __migrations_number.slice(index).reverse();
+      __migrations_number.pop(); //Discart current version
+      return migreTo(__migrations_number.pop(), function(){ oncreate(cb); });
+    }
   };
 
   //static function reset
@@ -370,8 +376,10 @@ module.exports = storago;;
     this._offset = null;
     this._limit = null;
     this._from = null;
+    this._distinct = false;
     this._wheres = [];
     this._joins = [];
+    this._left_joins = [];
     this._columns = [];
     this._values = [];
     this._orders = [];
@@ -384,6 +392,10 @@ module.exports = storago;;
     this._limit = limit;
     if (offset) this._offset = offset;
     return this;
+  };
+
+  select.prototype.distinct = function(){
+    this._distinct = true;
   };
 
   select.prototype.order = function(col) {
@@ -413,7 +425,14 @@ module.exports = storago;;
 
     if (columns == undefined) columns = [name + '*'];
     this._joins.push([name, on]);
-    this._columns.concat(columns);
+    this._columns = this._columns.concat(columns);
+  };
+
+  select.prototype.join_left = function(name, on, columns) {
+
+    if (columns == undefined) columns = [name + '*'];
+    this._left_joins.push([name, on]);
+    this._columns = this._columns.concat(columns);
   };
 
   select.prototype.render = function() {
@@ -422,6 +441,9 @@ module.exports = storago;;
     if (this._from == null && this.table) this.from(this.table.META.name);
 
     var sql = 'SELECT';
+
+    if(this._distinct) sql += ' DISTINCT';
+
     for (var c in this._columns) {
 
       if (c == 0) {
@@ -438,7 +460,15 @@ module.exports = storago;;
       var size = this._joins.length;
       for (var j in this._joins) {
         var join = this._joins[j];
-        sql += ' JOIN ' + join[0] + ' ON ' + join[1];
+        sql += ' join ' + join[0] + ' on ' + join[1];
+      }
+    }
+
+    if (this._left_joins.length) {
+      var size = this._left_joins.length;
+      for (var j in this._left_joins) {
+        var join = this._left_joins[j];
+        sql += ' left join ' + join[0] + ' on ' + join[1];
       }
     }
 
@@ -537,7 +567,7 @@ module.exports = storago;;
 
   tools.dbToField = function(type, value) {
 
-    if (value && (type == 'DATE' || type == 'DATETIME')) return new Date(value);
+    if (value && (type == 'DATE' || type == 'DATETIME')) return new Date(value.replace(/-/g, '/'));
     if (value && (type == 'BOOL')){
       if(value == 'false') return false;
       if(value == 'true')  return true;
@@ -560,7 +590,7 @@ module.exports = storago;;
     for (var i in indexs) {
       var index = indexs[i];
       var sql = "CREATE INDEX IF NOT EXISTS ";
-      sql += index + "_idx ON ";
+      sql += this.table.META.name + "_" + index + "_idx ON ";
       sql += this.table.META.name + " (" + index + ");";
       this.indexs.push(sql);
     }
