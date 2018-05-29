@@ -34,16 +34,22 @@ module.exports = storago;;
     return cb();
   };
 
-  Entry.prototype.save = function(cb, cbErr) {
+  Entry.prototype.save = function(cb, cbErr){
 
     var self = this;
-    this.pre_save.call(self, function() {
-      self._save(function(row, tx) {
 
-        self.post_save.call(self, function() {
+    self.pre_save.call(self, function(){
+
+      self._save(function(row, tx){
+
+        self.post_save.call(self, function(){
+
           cb(row, tx);
-        }, cbErr)
-      }, cbErr)
+
+        }, cbErr);
+
+      }, cbErr);
+
     }, cbErr);
   };
 
@@ -56,14 +62,14 @@ module.exports = storago;;
       var insert = new query.Insert(this._TABLE);
       insert.add(this);
       storago.db.transaction(function(tx) {
-        insert.execute(tx, function(tx, result) {
+        insert.execute(tx, function(tx, result){
           self.rowid = result.insertId;
-          if (cb) cb(self, tx);
+          if(cb) cb(self, tx);
 
-        }, function(tx, err) {
-          if (cbErr) {
+        }, function(tx, err){
+          if(!!cbErr){
             cbErr(err);
-          } else {
+          }else{
             var msg = "(storago) " + err.message;
             throw msg;
           }
@@ -76,7 +82,8 @@ module.exports = storago;;
         var update = new query.Update(self._TABLE);
 
         for (var p in data) {
-          var self_p = tools.fieldToDb(null, self[p]);
+          var type   = self._TABLE.META.props[p];
+          var self_p = tools.fieldToDb(type, self[p]);
           if (self_p != data[p]) {
             update.set(p, self[p]);
           }
@@ -86,9 +93,13 @@ module.exports = storago;;
         storago.db.transaction(function(tx) {
           update.execute(tx, function(tx) {
             cb(self, tx);
-          }, function(tx, err) {
-            var msg = "(storago) " + err.message;
-            throw msg;
+          }, function(tx, err){
+             if(!!cbErr){
+              cbErr(err);
+            } else {
+              var msg = "(storago) " + err.message;
+              throw msg;
+            }
           });
         });
       };
@@ -286,29 +297,52 @@ module.exports = storago;;
   }
 
   //static function schema
-  storago.schema = function(cb) {
+  storago.schema = function(cb, errCb) {
 
     var ts = [];
     var self = this;
 
+    var t_create = [];
+    var t_index  = [];
+    for(var i in __tables){
+      t_create[i] = __tables[i]; //clone
+      t_index[i]  = __tables[i]; //clone
+    }
+
     var _create = function(tx, onCb){
     
-      var table = __tables2.pop();
-
+      var table = t_create.pop();
       if (table) {
         var create = new query.Create(table);
         create.execute(tx, function(tx) {
-          var index = new query.Index(table);
-          index.execute(tx, function(tx) {
-            _create(tx, onCb);
-            ts.push(table);
-          });
-        });
+          _create(tx, onCb);
+        }, errCb);
 
       } else {
 
         return onCb();
       }
+    }
+
+    var _index = function(tx, onCb){
+
+      var table = t_index.pop();
+      if (table) {
+        var index = new query.Index(table);
+        index.execute(tx, function(tx) {
+          _index(tx, onCb);
+        }, errCb);
+
+      } else {
+        return onCb();
+      }
+    }
+
+    var onindex = function(onCb){
+    
+      storago.db.transaction(function(tx){
+        _index(tx, onCb);
+      });
     }
 
     var oncreate = function(onCb){
@@ -319,44 +353,76 @@ module.exports = storago;;
     }
 
     var migreTo = function(version, onCb) {
-      if (version && __migrations[version]) {
+
+      if(version && __migrations[version]){
+
         console.log(storago.db.version, version);
-        storago.db.changeVersion(storago.db.version, String(version), function(t) {
+        storago.db.changeVersion(storago.db.version, String(version), function(t){
+
           __migrations[version][0](t);
         }, function(err) {
-          if (__migrations[version].hasOwnProperty(1)) return __migrations[version][1](err);
-          throw "(Storago) " + err.message;
+
+          if (!!__migrations[version][1]){
+          
+            __migrations[version][1](err);
+            return;
+
+          }else{
+          
+            errCb(err);
+            return;
+          }
+          
         }, function() {
-          migreTo(__migrations_number.pop(), onCb);
+
+          migreTo(__migrations_number.pop(), function(){
+            onindex(onCb);
+          });
         });
+
       } else {
         __migrations = {}; //clear migrations
-        onCb();
+        onindex(onCb);
       }
     }
 
     var version = parseInt(storago.db.version) || '';
     if (version === '') {
       var db_version = __migrations_number[__migrations_number.length - 1];
-      if (db_version == 0) return oncreate(cb);
-      storago.db.changeVersion('', db_version, function(){ oncreate(cb); });
+      if (db_version == 0){
+        
+        return oncreate(function(){
+          onindex(cb);
+        });
+      }
+
+      storago.db.changeVersion('', db_version, function(){ oncreate(function(){ onindex(cb) }); });
 
     } else {
-      var index = __migrations_number.indexOf(version);
-      if (index < 0) throw "(storago) Version " + version + " no have on migration list";
-      __migrations_number = __migrations_number.slice(index).reverse();
-      __migrations_number.pop(); //Discart current version
-      return migreTo(__migrations_number.pop(), function(){ oncreate(cb); });
+
+      return oncreate(function(){
+      
+        var index = __migrations_number.indexOf(version);
+        if (index < 0) throw "(storago) Version " + version + " no have on migration list";
+        __migrations_number = __migrations_number.slice(index).reverse();
+        __migrations_number.pop(); //Discart current version
+        migreTo(__migrations_number.pop(), cb);
+      });
     }
   };
 
   //static function reset
   storago.reset = function(cb) {
 
+    var changeVersion = function(){
+      
+      storago.db.changeVersion(storago.db.version, '', cb);
+    }
+
     var ondrop = function(tx){
       var table = tables.pop();
       if(table == undefined){
-        if(!!cb) cb();
+        changeVersion();
         return;
       }
       var drop = new query.Drop(table);
@@ -365,6 +431,16 @@ module.exports = storago;;
 
     storago.db.transaction(function(tx){ ondrop(tx); });
   };
+
+  //free sql
+  var sql = function(sql, data, cb, errCb){
+  
+    storago.db.transaction(function(tx){
+      
+      tx.executeSql(sql, data, cb, errCb);
+    });
+  };
+  storago.sql = sql;
 
   //package query
   var query = {};
@@ -498,14 +574,37 @@ module.exports = storago;;
     return sql;
   };
 
-  select.prototype.toString = function() {
+  select.prototype.toString = function(){
     return this.render();
   };
 
-  select.prototype.execute = function(tx, cb, cbErr) {
-    var sql = this.render();
-    if (storago.debug) console.log(sql, this._values);
-    tx.executeSql(sql, this._values, cb, cbErr);
+  select.prototype.execute = function(tx, cb, cbErr){
+
+    try{
+
+      var self = this;
+      var sql  = this.render();
+      if (storago.debug) console.log(sql, this._values);
+      tx.executeSql(sql, this._values, cb, function(tx, err){
+        err.name   = self.table.META.name;
+        err.table  = self.table.META.name;
+        err.action = 'select';
+        if(!!cbErr) cbErr(tx, err);
+      });
+
+    }catch(e){
+
+      if(typeof sql != 'undefined') e.sql = sql;
+      e.values = this._values;
+    
+      if(!!cbErr){
+        
+        cbErr(null, e);
+      }else{
+        
+        throw e;
+      }
+    }
   };
 
   select.prototype.all = function(cb, cbErr) {
@@ -516,20 +615,45 @@ module.exports = storago;;
       self.execute(tx, function(tx, result) {
         var rows = result.rows;
         for (var r = 0; r < rows.length; r++) {
-          var row = rows.item(r);
-          var table = self.table;
-          var entry = new table();
-          var props = self.table.META.props
-          for (var p in row) {
-            entry[p] = tools.dbToField(props[p], row[p]);
+          
+          try{
+
+            var row = rows.item(r);
+            var table = self.table;
+            var entry = new table();
+            var props = self.table.META.props
+            for (var p in row) {
+              entry[p] = tools.dbToField(props[p], row[p]);
+            }
+            entry._DATA = row;
+            rowset.push(entry);
+         
+          }catch(e){
+          
+            if(!!cbErr){
+              
+              cbErr(null, e);
+            }else{
+              
+              throw e;
+            }
           }
-          entry._DATA = row;
-          rowset.push(entry);
         }
         if (storago.debug) console.log(rowset);
-        if (typeof(cb) != 'function') throw "(storago) is not a function, " + typeof(cb) + " given";
+        if (typeof(cb) != 'function'){
+        
+          var error = "(storago) is not a function, " + typeof(cb) + " given";
+          if(!!cbErr){
+            cbErr(error);
+          }else{
+            throw error;
+          }
+          return;
+        }
+        
         if (cb) cb(rowset);
         return;
+
       }, function(tx, err) {
         if (cbErr) {
           cbErr(err);
@@ -558,17 +682,27 @@ module.exports = storago;;
   // Private package tools
   var tools = {};
   tools.fieldToDb = function(type, value) {
+    
+    if(value == undefined) return null;
+    if(type === undefined) return value;
+    
+    type = type.toLowerCase().trim();
 
-    if (value == undefined) return null;
-    if (value instanceof Date) return value.getIso();
-    if (typeof(value) == 'function') throw '(storago) function has been setted like property: ' + value;
+    if(type == 'date' || type == 'datetime'){
+
+      if(typeof value == 'string')  value = new Date(value.replace(/-/g, '/'));
+      if(type == 'date')     return value.getIsoDate();
+      if(type == 'datetime') return value.getIso();
+    }
+
+    if(typeof(value) == 'function') throw '(storago) function has been setted like property: ' + value;
     return value;
   };
 
   tools.dbToField = function(type, value) {
 
-    if (value && (type == 'DATE' || type == 'DATETIME')) return new Date(value.replace(/-/g, '/'));
-    if (value && (type == 'BOOL')){
+    if(value && (type == 'DATE' || type == 'DATETIME')) return new Date(value.replace(/-/g, '/'));
+    if(value && (type == 'BOOL')){
       if(value == 'false') return false;
       if(value == 'true')  return true;
     };
@@ -598,26 +732,44 @@ module.exports = storago;;
 
   index.prototype.execute = function(tx, cb, cbErr) {
 
-    this.render();
-    if (this.indexs.length == 0) {
-      cb(tx);
-      return;
-    }
-    var self = this;
+    try{
 
-    var onindex = function(i) {
-      if (self.indexs.length == i) {
+      var self = this;
+      this.render();
+
+      if (this.indexs.length == 0) {
         cb(tx);
         return;
-      };
-      var index = self.indexs[i];
-      if (storago.debug) console.log(index);
-      tx.executeSql(index, null, function() {
-        onindex(i + 1);
-      }, cbErr);
-    };
+      }
 
-    onindex(0);
+      var onindex = function(i) {
+        if (self.indexs.length == i) {
+          cb(tx);
+          return;
+        };
+        var index = self.indexs[i];
+        if (storago.debug) console.log(index);
+        tx.executeSql(index, null, function() {
+          onindex(i + 1);
+        }, function(tx, err){
+          err.name  = self.table.META.name;
+          err.action = 'create index';
+          if(!!cbErr) cbErr(tx, err);
+        });
+      };
+
+      onindex(0);
+
+    }catch(e){
+    
+      if(!!cbErr){
+        
+        cbErr(null, e);
+      }else{
+        
+        throw e;
+      }
+    }
   };
 
   //class query.Create
@@ -655,9 +807,28 @@ module.exports = storago;;
   };
 
   create.prototype.execute = function(tx, cb, cbErr) {
-    var sql = this.render();
-    if (storago.debug) console.log(sql);
-    tx.executeSql(sql, [], cb, cbErr);
+ 
+    try{
+
+      var self = this;
+      var sql  = this.render();
+      if (storago.debug) console.log(sql);
+      tx.executeSql(sql, [], cb, function(tx, err){
+        err.name  = self.table.META.name;
+        err.action = 'create table';
+        if(!!cbErr) cbErr(tx, err);
+      });
+
+    }catch(e){
+    
+      if(!!cbErr){
+        
+        cbErr(null, e);
+      }else{
+        
+        throw e;
+      }
+    }
   };
 
   //class query.Info
@@ -668,7 +839,8 @@ module.exports = storago;;
 
   info.prototype.execute = function(tx, cb, cbErr) {
 
-    var sql = "PRAGMA table_info(\"" + this.table.META.name + "\")";
+    var self = this;
+    var sql  = "PRAGMA table_info(\"" + this.table.META.name + "\")";
     if (storago.debug) console.log(sql);
     tx.executeSql(sql, [], function(rowset) {
       var columns = {};
@@ -680,7 +852,11 @@ module.exports = storago;;
       if (storago.debug) console.log(columns);
       cb(columns);
 
-    }, cbErr);
+    }, function(tx, err){
+      err.name  = self.table.META.name;
+      err.action = 'info';
+      if(!!cbErr) cbErr(tx, err);
+    });
   };
 
   var infoWEB = function(table) {
@@ -689,13 +865,31 @@ module.exports = storago;;
 
   infoWEB.prototype.execute = function(tx, cb, cbErr) {
 
-    var table_name = this.table.META.name
-    var sql = "select " + table_name + ".* from sqlite_master left join " + table_name + " on 1=1 limit 1";
-    if (storago.debug) console.log(sql);
-    tx.executeSql(sql, null, function(tx, result) {
-      var row = result.rows[0];
-      return cb(row);
-    }, cbErr);
+    try{
+
+      var self = this;
+      var table_name = this.table.META.name
+      var sql = "select " + table_name + ".* from sqlite_master left join " + table_name + " on 1=1 limit 1";
+      if (storago.debug) console.log(sql);
+      tx.executeSql(sql, null, function(tx, result) {
+        var row = result.rows[0];
+        return cb(row);
+      }, function(tx, err){
+        err.name  = self.table.META.name;
+        err.action = 'infoWeb';
+        if(!!cbErr) cbErr(tx, err);
+      });
+    
+    }catch(e){
+    
+      if(!!cbErr){
+        
+        cbErr(null, e);
+      }else{
+        
+        throw e;
+      }
+    }
   }
   query.InfoWEB = infoWEB;
 
@@ -710,7 +904,13 @@ module.exports = storago;;
 
   insert.prototype.add = function(obj) {
 
-    if (!obj._TABLE || obj._TABLE.META.name != this.table.META.name) {
+    if(!obj._TABLE){
+      var msg = "Is not valid object " + JSON.stringify(obj);
+      throw msg;
+    }
+    
+    if(obj._TABLE.META.name != this.table.META.name) {
+      
       var msg = "(storago) No permission: object must be of class(" + this.table.META.name + ")";
       msg += ", but is the class(" + obj._TABLE.META.name + ")";
       throw msg;
@@ -722,7 +922,7 @@ module.exports = storago;;
   insert.prototype.parse = function() {
 
     this.values = [];
-    for (var prop in this.table.META.props) this.columns.push(prop);
+    for (var prop in this.table.META.props)     this.columns.push(prop);
     for (var parent in this.table.META.parents) this.columns.push(parent + '_id');
     for (var o in this.objects) {
       var obj = this.objects[o];
@@ -762,9 +962,89 @@ module.exports = storago;;
 
   insert.prototype.execute = function(tx, cb, cbErr) {
 
-    var sql = this.render();
-    if (storago.debug) console.log(sql, this.values);
-    tx.executeSql(sql, this.values, cb, cbErr);
+    var self = this;
+
+    var error_triggered = false;
+    var time            = 60 * 1000;
+
+    var timeout = setTimeout(function(){
+
+      try{
+        var sql = self.render();
+      }catch(e){
+        var sql = JSON.stringify(e);
+      }
+      
+      var error = {};
+      error.code   = 'SAVETIMEOUT_INSERT';
+      error.table  = self.table.META.name;
+      error.sql    = sql;
+      error.values = self.values;
+      error.time   = time;
+      if(!!cbErr){
+        error_triggered = true;
+        cbErr(error);
+      }
+      
+      if(storago.debug){
+        console.log('(storago) ' + JSON.stringify(error));
+      }
+       
+    }, time);
+
+    try{
+
+      var sql  = this.render();
+
+      if(storago.debug) console.log(sql, this.values);
+
+      tx.executeSql(sql, this.values, function(tx, result){
+      
+        clearTimeout(timeout);
+
+        if(!!error_triggered){
+
+          var error = {};
+          error.code   = 'SAVETIMEOUT_INSERT_DOIT';
+          error.table  = self.table.META.name;
+          error.sql    = sql;
+          error.values = self.values;
+          error.time   = time;
+          if(!!cbErr) cbErr(error);
+        
+        }else{
+        
+          cb(tx, result);
+        }
+      
+      }, function(tx, err){
+
+        clearTimeout(timeout);
+
+        err.sql = sql;
+        err.values = self.values;
+
+        err.name   = self.table.META.name;
+        err.action = 'insert';
+        if(!!cbErr) cbErr(tx, err);
+      });
+    
+    }catch(e){
+
+      clearTimeout(timeout);
+
+      if(typeof sql != 'undefined') e.sql = sql;
+      e.values = this.values;
+      e.name   = this.table.META.name;
+    
+      if(!!cbErr){
+        
+        cbErr(null, e);
+      }else{
+        
+        throw e;
+      }
+    }
   };
 
   //class query.Delete
@@ -805,13 +1085,33 @@ module.exports = storago;;
 
   del.prototype.execute = function(tx, cb, cbErr) {
 
-    var sql = this.render();
-    if (sql == null) {
-      if (cb) cb(tx);
-      return;
+    try{
+
+      var self = this;
+      var sql  = this.render();
+
+      if (sql == null) {
+        if (!cb) cb(tx);
+        return;
+      }
+
+      if (storago.debug) console.log(sql, this.values);
+      tx.executeSql(sql, this.values, cb, function(tx, err){
+        err.name   = self.table.META.name;
+        err.action = 'delete';
+        if(!!cbErr) cbErr(tx, err);
+      });
+
+    }catch(e){
+    
+      if(!!cbErr){
+        
+        cbErr(null, e);
+      }else{
+        
+        throw e;
+      }
     }
-    if (storago.debug) console.log(sql, this.values);
-    tx.executeSql(sql, this.values, cb, cbErr);
   };
 
   //class query.Update
@@ -868,13 +1168,97 @@ module.exports = storago;;
 
   update.prototype.execute = function(tx, cb, cbErr) {
 
-    var sql = this.render();
-    if (sql == null) {
-      if (cb) cb(tx);
-      return;
+    var self = this;
+
+    var error_triggered = false;
+    var time            = 60 * 1000;
+
+    var timeout = setTimeout(function(){
+
+      try{
+        var sql = self.render();
+      }catch(e){
+        var sql = JSON.stringify(e);
+      }
+      
+      var error = {};
+      error.code   = 'SAVETIMEOUT_INSERT';
+      error.table  = self.table.META.name;
+      error.sql    = sql;
+      error.values = self.values;
+      error.time   = time;
+      if(!!cbErr){
+        error_triggered = true;
+        cbErr(error);
+      }
+      
+      if(storago.debug){
+        console.log('(storago) ' + JSON.stringify(error));
+      }
+       
+    }, time);
+
+    try{
+
+      var sql  = this.render();
+
+      if (sql == null) {
+        clearTimeout(timeout);
+        if(cb) cb(tx);
+        return;
+      }
+
+      if(storago.debug) console.log(sql, this.values);
+      tx.executeSql(sql, this.values, function(tx){
+      
+        clearTimeout(timeout);
+      
+        if(!!error_triggered){
+
+          var error = {};
+          error.code   = 'SAVETIMEOUT_UPDATE_DOIT';
+          error.table  = self.table.META.name;
+          error.sql    = sql;
+          error.values = self.values;
+          error.time   = time;
+          if(!!cbErr) cbErr(error);
+        
+        }else{
+        
+          cb(tx);
+        }
+      
+      }, function(tx, err){
+
+        clearTimeout(timeout);
+
+        err.name   = self.table.META.name;
+        err.action = 'update';
+        if(!!cbErr){
+          cbErr(tx, err);
+        }else{
+          
+          throw err;
+        }
+        
+      });
+
+    }catch(e){
+
+      clearTimeout(timeout);
+
+      if(typeof sql != 'undefined') e.sql = sql;
+      e.values = this.values;
+    
+      if(!!cbErr){
+        
+        console.log('OPA2', e);
+        cbErr(null, e);
+      }else{
+        
+        throw e;
+      }
     }
-    if (storago.debug) console.log(sql, this.values);
-    tx.executeSql(sql, this.values, cb, cbErr);
   };
 
   //class query.Drop
@@ -885,9 +1269,14 @@ module.exports = storago;;
   query.Drop = drop;
 
   drop.prototype.execute = function(tx, cb, cbErr) {
-    var sql = 'DROP TABLE ' + this.table.META.name;
+    var self = this;
+    var sql  = 'DROP TABLE ' + this.table.META.name;
     if (storago.debug) console.log(sql);
-    tx.executeSql(sql, [], cb, cbErr);
+    tx.executeSql(sql, [], cb, function(tx, err){
+      err.name   = self.table.META.name;
+      err.action = 'drop';
+      if(!!cbErr) cbErr(tx, err);
+    });
   };
 
   //class query.Truncate
@@ -899,11 +1288,16 @@ module.exports = storago;;
 
   truncate.prototype.execute = function(tx, cb, cbErr) {
 
+    var self = this;
     var drop = new query.Drop(this.table);
     var create = new query.Create(this.table);
     drop.execute(tx, function() {
       create.execute(tx, cb, cbErr);
-    }, cbErr);
+    }, function(tx, err){
+      err.name   = self.table.META.name;
+      err.action = 'truncate';
+      if(!!cbErr) cbErr(tx, err);
+    });
   };
 
 }(storago));
