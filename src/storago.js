@@ -26,89 +26,124 @@ module.exports = storago;;
   Entry.prototype.rowid = null;
   var __Entry = Entry;
 
-  Entry.prototype.pre_save = function(cb, cbErr) {
+  Entry.prototype.pre_save = function(cb, cbErr, tx) {
     return cb();
   };
 
-  Entry.prototype.post_save = function(cb, cbErr) {
+  Entry.prototype.post_save = function(cb, cbErr, tx) {
     return cb();
   };
 
-  Entry.prototype.save = function(cb, cbErr){
+  Entry.prototype.save = function(cb, cbErr, tx){
 
     var self = this;
 
     self.pre_save.call(self, function(){
 
-      self._save(function(row, tx){
+      self._save.call(self, function(row, tx){
 
         self.post_save.call(self, function(){
 
           cb(row, tx);
 
-        }, cbErr);
+        }, cbErr, tx);
 
-      }, cbErr);
+      }, cbErr, tx);
 
-    }, cbErr);
+    }, cbErr, tx);
   };
 
-  Entry.prototype._save = function(cb, cbErr) {
+  Entry.prototype._insert = function(tx, cb, errCb){
 
     var self = this;
 
-    if (!this.rowid) {
+    var insert = new query.Insert(this._TABLE);
+    insert.add(this);
+  
+    insert.execute(tx, function(tx, result){
+      self.rowid = result.insertId;
+      if(cb) cb(self, tx);
 
-      var insert = new query.Insert(this._TABLE);
-      insert.add(this);
-      storago.db.transaction(function(tx) {
-        insert.execute(tx, function(tx, result){
-          self.rowid = result.insertId;
-          if(cb) cb(self, tx);
-
-        }, function(tx, err){
-          if(!!cbErr){
-            cbErr(err);
-          }else{
-            var msg = "(storago) " + err.message;
-            throw msg;
-          }
-        });
-      });
-    } else {
-
-      var ondata = function(row) {
-        var data = row._DATA;
-        var update = new query.Update(self._TABLE);
-
-        for (var p in data) {
-          var type   = self._TABLE.META.props[p];
-          var self_p = tools.fieldToDb(type, self[p]);
-          if (self_p != data[p]) {
-            update.set(p, self[p]);
-          }
-        }
-        update.where('rowid = ?', row.rowid);
-
-        storago.db.transaction(function(tx) {
-          update.execute(tx, function(tx) {
-            cb(self, tx);
-          }, function(tx, err){
-             if(!!cbErr){
-              cbErr(err);
-            } else {
-              var msg = "(storago) " + err.message;
-              throw msg;
-            }
-          });
-        });
-      };
-
-      if (!this._DATA) {
-        this._TABLE.find(this.rowid, ondata);
-      } else {
-        ondata(this);
+    }, function(tx, err){
+      if(!!cbErr){
+        cbErr(err);
+      }else{
+        var msg = "(storago) " + err.message;
+        throw msg;
       }
+    });
+  };
+
+  Entry.prototype._update = function(tx, cb, errCb){
+
+    var self = this;
+  
+    var ondata = function(row){
+
+      var data = row._DATA;
+      var update = new query.Update(self._TABLE);
+
+      for (var p in data) {
+        var type   = self._TABLE.META.props[p];
+        var self_p = tools.fieldToDb(type, self[p]);
+        if (self_p != data[p]) {
+          update.set(p, self[p]);
+        }
+      }
+      update.where('rowid = ?', row.rowid);
+
+      update.execute(tx, function(tx){
+
+        cb(self, tx);
+
+      }, function(tx, err){
+
+         if(!!errCb){
+          errCb(err);
+
+        } else {
+
+          var msg = "(storago) " + err.message;
+          throw msg;
+        }
+      });
+    };
+
+    if(!this._DATA){
+      this._TABLE.find(this.rowid, ondata, errCb, tx);
+    } else {
+      ondata(this);
+    }
+  }
+
+  Entry.prototype._save = function(cb, cbErr, tx) {
+
+    var self = this;
+
+    if(!!tx){
+
+      if(!this.rowid){
+
+        this._insert(tx, cb, cbErr);
+      }else{
+      
+        this._update(tx, cb, cbErr);
+      }
+      return;
+
+    }else{
+
+      storago.db.transaction(function(tx){
+
+        if(!self.rowid){
+
+          self._insert.call(self, tx, cb, cbErr);
+        }else{
+          
+          self._update.call(self, tx, cb, cbErr);
+        }
+
+      }, cbErr);
     }
   };
 
@@ -131,7 +166,7 @@ module.exports = storago;;
         var msg = "(storago) " + err.message;
         throw msg;
       });
-    });
+    }, errCb);
   }
 
   Entry.prototype.refresh = function(cb) {
@@ -150,7 +185,8 @@ module.exports = storago;;
       info.execute(tx, function(row) {
         cb(row.hasOwnProperty(column));
       }, cbErr);
-    });
+
+    }, errCb);
   };
 
   Entry.info = function(cb, cbErr) {
@@ -158,7 +194,7 @@ module.exports = storago;;
     storago.db.transaction(function(tx) {
       var info = new query.Info(self);
       info.execute(tx, cb, cbErr);
-    });
+    }, errCb);
   };
 
   Entry.findMemory = function(id, cb, cbErr){
@@ -195,17 +231,17 @@ module.exports = storago;;
     });
   };
 
-  Entry.find = function(rowid, cb, cbErr) {
+  Entry.find = function(rowid, cb, cbErr, tx) {
 
     if(!rowid) return cb(null);
-    this.findBy('rowid', rowid, cb, cbErr);
+    this.findBy('rowid', rowid, cb, cbErr, tx);
   };
 
-  Entry.findBy = function(col, value, cb, cbErr) {
+  Entry.findBy = function(col, value, cb, cbErr, tx) {
     var self = this;
     var select = this.select();
     select.where(this.META.name + '.' + col + ' = ?', value);
-    select.one(cb, cbErr);
+    select.one(cb, cbErr, tx);
   };
 
   Entry.select = function() {
@@ -338,18 +374,18 @@ module.exports = storago;;
       }
     }
 
-    var onindex = function(onCb){
+    var onindex = function(onCb, errCb){
     
       storago.db.transaction(function(tx){
         _index(tx, onCb);
-      });
+      }, errCb);
     }
 
     var oncreate = function(onCb){
 
       storago.db.transaction(function(tx){
         _create(tx, onCb);
-      });
+      }, errCb);
     }
 
     var migreTo = function(version, onCb) {
@@ -438,7 +474,7 @@ module.exports = storago;;
     storago.db.transaction(function(tx){
       
       tx.executeSql(sql, data, cb, errCb);
-    });
+    }, errCb);
   };
   storago.sql = sql;
 
@@ -607,17 +643,18 @@ module.exports = storago;;
     }
   };
 
-  select.prototype.all = function(cb, cbErr) {
+  select.prototype.all = function(cb, cbErr, tx) {
 
     var rowset = [];
     var self = this;
-    storago.db.transaction(function(tx) {
-      self.execute(tx, function(tx, result) {
+
+    var ontx = function(tx){
+
+      self.execute(tx, function(tx, result){
         var rows = result.rows;
-        for (var r = 0; r < rows.length; r++) {
+        for (var r = 0; r < rows.length; r++){
           
           try{
-
             var row = rows.item(r);
             var table = self.table;
             var entry = new table();
@@ -639,6 +676,7 @@ module.exports = storago;;
             }
           }
         }
+
         if (storago.debug) console.log(rowset);
         if (typeof(cb) != 'function'){
         
@@ -662,13 +700,21 @@ module.exports = storago;;
           throw "(storago) " + err.message;
         }
       });
-    });
+    };
+
+    if(!!tx){
+      ontx(tx);
+
+    }else{
+      
+      storago.db.transaction(ontx, cbErr);
+    }
   };
 
-  select.prototype.one = function(cb, cbErr) {
+  select.prototype.one = function(cb, cbErr, tx) {
 
     this.limit(1);
-    this.all(function(rowset) {
+    this.all(function(rowset){
       if (rowset.length == 0) {
         cb(null);
         return;
@@ -676,7 +722,7 @@ module.exports = storago;;
       if (cb == undefined) throw "(storago) callback undefined";
       if (typeof(cb) != 'function') throw "(storago) is not a function, " + typeof(cb) + " given";
       cb(rowset[0]);
-    }, cbErr);
+    }, cbErr, tx);
   };
 
   // Private package tools
@@ -922,6 +968,8 @@ module.exports = storago;;
   insert.prototype.parse = function() {
 
     this.values = [];
+    this.columns = [];
+
     for (var prop in this.table.META.props)     this.columns.push(prop);
     for (var parent in this.table.META.parents) this.columns.push(parent + '_id');
     for (var o in this.objects) {
@@ -964,78 +1012,35 @@ module.exports = storago;;
 
     var self = this;
 
-    var error_triggered = false;
-    var time            = 60 * 1000;
-
-    var timeout = setTimeout(function(){
-
-      try{
-        var sql = self.render();
-      }catch(e){
-        var sql = JSON.stringify(e);
-      }
-      
-      var error = {};
-      error.code   = 'SAVETIMEOUT_INSERT';
-      error.table  = self.table.META.name;
-      error.sql    = sql;
-      error.values = self.values;
-      error.time   = time;
-      if(!!cbErr){
-        error_triggered = true;
-        cbErr(error);
-      }
-      
-      if(storago.debug){
-        console.log('(storago) ' + JSON.stringify(error));
-      }
-       
-    }, time);
-
     try{
 
       var sql  = this.render();
 
       if(storago.debug) console.log(sql, this.values);
 
-      tx.executeSql(sql, this.values, function(tx, result){
-      
-        clearTimeout(timeout);
+      tx.executeSql(sql, this.values, cb, function(tx, err){
 
-        if(!!error_triggered){
+        var e = {
+          error: err,
+          sql: sql,
+          values: self.values,
+          name: self.table.META.name,
+          action: 'insert',
+        };
 
-          var error = {};
-          error.code   = 'SAVETIMEOUT_INSERT_DOIT';
-          error.table  = self.table.META.name;
-          error.sql    = sql;
-          error.values = self.values;
-          error.time   = time;
-          if(!!cbErr) cbErr(error);
-        
-        }else{
-        
-          cb(tx, result);
-        }
-      
-      }, function(tx, err){
-
-        clearTimeout(timeout);
-
-        err.sql = sql;
-        err.values = self.values;
-
-        err.name   = self.table.META.name;
-        err.action = 'insert';
-        if(!!cbErr) cbErr(tx, err);
+        if(!!cbErr) cbErr(tx, e);
       });
     
-    }catch(e){
+    }catch(err){
 
-      clearTimeout(timeout);
+      var e = {
+        error: err,
+        values: this.values,
+        name: this.table.META.name,
+        action: 'insert',
+      };
 
       if(typeof sql != 'undefined') e.sql = sql;
-      e.values = this.values;
-      e.name   = this.table.META.name;
     
       if(!!cbErr){
         
@@ -1044,6 +1049,8 @@ module.exports = storago;;
         
         throw e;
       }
+
+      console.log(e);
     }
   };
 
@@ -1133,7 +1140,8 @@ module.exports = storago;;
 
     var props = this.table.META.props;
 
-    this.values = [];
+    this.values  = [];
+
     if (this.columns.length == 0) return null;
 
     var sql = 'UPDATE ' + this.table.META.name + ' SET ';
@@ -1170,89 +1178,43 @@ module.exports = storago;;
 
     var self = this;
 
-    var error_triggered = false;
-    var time            = 60 * 1000;
-
-    var timeout = setTimeout(function(){
-
-      try{
-        var sql = self.render();
-      }catch(e){
-        var sql = JSON.stringify(e);
-      }
-      
-      var error = {};
-      error.code   = 'SAVETIMEOUT_INSERT';
-      error.table  = self.table.META.name;
-      error.sql    = sql;
-      error.values = self.values;
-      error.time   = time;
-      if(!!cbErr){
-        error_triggered = true;
-        cbErr(error);
-      }
-      
-      if(storago.debug){
-        console.log('(storago) ' + JSON.stringify(error));
-      }
-       
-    }, time);
-
     try{
 
       var sql  = this.render();
 
       if (sql == null) {
-        clearTimeout(timeout);
         if(cb) cb(tx);
         return;
       }
 
       if(storago.debug) console.log(sql, this.values);
-      tx.executeSql(sql, this.values, function(tx){
-      
-        clearTimeout(timeout);
-      
-        if(!!error_triggered){
-
-          var error = {};
-          error.code   = 'SAVETIMEOUT_UPDATE_DOIT';
-          error.table  = self.table.META.name;
-          error.sql    = sql;
-          error.values = self.values;
-          error.time   = time;
-          if(!!cbErr) cbErr(error);
+      tx.executeSql(sql, this.values, cb, function(tx, err){
         
-        }else{
-        
-          cb(tx);
-        }
-      
-      }, function(tx, err){
-
-        clearTimeout(timeout);
-
+        console.log(err, cbErr);
         err.name   = self.table.META.name;
         err.action = 'update';
         if(!!cbErr){
           cbErr(tx, err);
+          console.log('(storago)', err);
         }else{
           
           throw err;
         }
-        
       });
 
-    }catch(e){
+    }catch(err){
 
-      clearTimeout(timeout);
+      var e = {
+        error: err,
+        values: this.values,
+        name: this.table.META.name,
+        action: 'update',
+      };
 
       if(typeof sql != 'undefined') e.sql = sql;
-      e.values = this.values;
-    
+
       if(!!cbErr){
         
-        console.log('OPA2', e);
         cbErr(null, e);
       }else{
         
