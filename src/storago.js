@@ -65,8 +65,8 @@ module.exports = storago;;
       if(cb) cb(self, tx);
 
     }, function(tx, err){
-      if(!!cbErr){
-        cbErr(err);
+      if(!!errCb){
+        errCb(err);
       }else{
         var msg = "(storago) " + err.message;
         throw msg;
@@ -152,6 +152,11 @@ module.exports = storago;;
       this[d] = data[d];
     };
   };
+
+  Entry.prototype.array = function(){
+  
+    return this._DATA;
+  }
 
   Entry.prototype.delete = function(cb, errCb) {
 
@@ -346,15 +351,16 @@ module.exports = storago;;
     }
 
     var _create = function(tx, onCb){
-    
+
       var table = t_create.pop();
-      if (table) {
+
+      if(!!table){
         var create = new query.Create(table);
         create.execute(tx, function(tx) {
           _create(tx, onCb);
         }, errCb);
 
-      } else {
+      }else{
 
         return onCb();
       }
@@ -437,7 +443,7 @@ module.exports = storago;;
     } else {
 
       return oncreate(function(){
-      
+
         var index = __migrations_number.indexOf(version);
         if (index < 0) throw "(storago) Version " + version + " no have on migration list";
         __migrations_number = __migrations_number.slice(index).reverse();
@@ -631,7 +637,6 @@ module.exports = storago;;
     }catch(e){
 
       if(typeof sql != 'undefined') e.sql = sql;
-      e.values = this._values;
     
       if(!!cbErr){
         
@@ -831,11 +836,11 @@ module.exports = storago;;
 
     for (var name in this.table.META.props) {
       var type = this.table.META.props[name];
-      this.columns.push(name + ' ' + type.toUpperCase());
+      this.columns.push('"' + name + '" ' + type.toUpperCase());
     }
 
     for (var name in this.table.META.parents) {
-      this.columns.push(name + '_id NUMERIC');
+      this.columns.push('"' + name + '_id" NUMERIC');
     }
   };
 
@@ -988,7 +993,7 @@ module.exports = storago;;
     var sql = 'INSERT INTO ' + this.table.META.name + ' (';
 
     for (var c in this.columns) {
-      sql += this.columns[c];
+      sql += '"' + this.columns[c] + '"';
       if (c < this.columns.length - 1) sql += ', ';
     }
 
@@ -1148,7 +1153,7 @@ module.exports = storago;;
 
     for (var c in this.columns) {
       var column = this.columns[c];
-      sql += column[0] + ' = ?';
+      sql += '"' + column[0] + '" = ?';
       var value = tools.fieldToDb(props[column[0]], column[1]);
       this.values.push(value);
       if ((this.columns.length - 1) != c) sql += ', ';
