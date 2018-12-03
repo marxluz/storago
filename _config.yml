@@ -1,0 +1,8 @@
+title: Storago
+description: "A simples WebSQL ORM "
+google_analytics: 
+show_downloads: true
+theme: jekyll-theme-hacker
+
+gems:
+  - jekyll-mentions
