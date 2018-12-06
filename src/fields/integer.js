@@ -1,6 +1,23 @@
-import Base from './base';
+import BaseField from './base';
 
-export default Class Interger extends Base{
+export class IntegerField extends BaseField{
 
-  static cast: "INTEGER";
+  static cast: string = "INTEGER";
+  name: string;
+
+  constructor(name: string){
+    super();
+    this.name = name;
+  }
+
+  getCast(){
+  
+    return 'INT';
+  }
 }
+
+export default (name: string): IntegerField => {
+
+  let instance = new IntegerField(name);
+  return instance;
+};

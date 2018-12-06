@@ -25,7 +25,8 @@ const modules = {
       use: {
         loader: 'babel-loader',
         options: {
-          presets: ['@babel/preset-env', '@babel/preset-flow']
+          presets: ['@babel/preset-env', '@babel/preset-flow'],
+          plugins: ['@babel/plugin-proposal-class-properties']
         }
       }
     }
