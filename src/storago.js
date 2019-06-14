@@ -26,125 +26,98 @@ module.exports = storago;;
   Entry.prototype.rowid = null;
   var __Entry = Entry;
 
-  Entry.prototype.pre_save = function(cb, cbErr, tx) {
-    return cb();
+  Entry.prototype.pre_save = function(cb, cbErr, tx){
+    return Promise.resolve(cb());
   };
 
   Entry.prototype.post_save = function(cb, cbErr, tx) {
-    return cb();
+    return Promise.resolve(cb());
   };
 
   Entry.prototype.save = function(cb, cbErr, tx){
 
-    var self = this;
+    let defer = new Promise(async (resolve, reject) => {
 
-    self.pre_save.call(self, function(){
+      await new Promise((resolve, reject) => { this.pre_save(resolve, reject, tx); });
+      tx = await this._save(tx)
+      await new Promise((resolve, reject) => { this.post_save(resolve, reject, tx); });
 
-      self._save.call(self, function(row, tx){
+      resolve(this);
+    });
 
-        self.post_save.call(self, function(){
+    if(!!cb){
+      return defer.then(cb, cbErr);
+    }
 
-          cb(row, tx);
-
-        }, cbErr, tx);
-
-      }, cbErr, tx);
-
-    }, cbErr, tx);
+    return defer;
   };
 
-  Entry.prototype._insert = function(tx, cb, errCb){
+  Entry.prototype._insert = function(tx){
 
-    var self = this;
+    return new Promise((resolve, reject) => {
 
-    var insert = new query.Insert(this._TABLE);
-    insert.add(this);
-  
-    insert.execute(tx, function(tx, result){
-      self.rowid = result.insertId;
-      if(cb) cb(self, tx);
+      var insert = new query.Insert(this._TABLE);
+      insert.add(this);
 
-    }, function(tx, err){
-      if(!!errCb){
-        errCb(err);
-      }else{
-        var msg = "(storago) " + err.message;
-        throw msg;
-      }
+      insert.execute(tx, (tx, result) => {
+        this.rowid = result.insertId;
+        resolve(tx);
+
+      }, reject);
     });
   };
 
-  Entry.prototype._update = function(tx, cb, errCb){
+  Entry.prototype._update = function(tx){
 
-    var self = this;
-  
-    var ondata = function(row){
+    return new Promise(async (resolve, reject) => {
 
+      let row = null;
+
+      if(!tx){
+        tx = await storago.transaction();
+      }
+
+      if(!this._DATA){
+        row = this._TABLE.find(this.rowid, null, null, tx);
+      } else {
+
+        row = this;
+      }
+    
       var data = row._DATA;
-      var update = new query.Update(self._TABLE);
+      var update = new query.Update(this._TABLE);
 
       for (var p in data) {
-        var type   = self._TABLE.META.props[p];
-        var self_p = tools.fieldToDb(type, self[p]);
+        var type   = this._TABLE.META.props[p];
+        var self_p = tools.fieldToDb(type, this[p]);
         if (self_p != data[p]) {
-          update.set(p, self[p]);
+          update.set(p, this[p]);
         }
       }
+
       update.where('rowid = ?', row.rowid);
-
-      update.execute(tx, function(tx){
-
-        cb(self, tx);
-
-      }, function(tx, err){
-
-         if(!!errCb){
-          errCb(err);
-
-        } else {
-
-          var msg = "(storago) " + err.message;
-          throw msg;
-        }
-      });
-    };
-
-    if(!this._DATA){
-      this._TABLE.find(this.rowid, ondata, errCb, tx);
-    } else {
-      ondata(this);
-    }
+      update.execute(tx, resolve, reject);
+    });
   }
 
-  Entry.prototype._save = function(cb, cbErr, tx) {
+  Entry.prototype._save = function(tx){
 
-    var self = this;
+    let defer = null;
 
     if(!!tx){
+      defer = Promise.resolve(tx);
+    }else{
+      defer = storago.transaction();
+    }
+
+    return defer.then(tx => {
 
       if(!this.rowid){
-
-        this._insert(tx, cb, cbErr);
+        return this._insert(tx);
       }else{
-      
-        this._update(tx, cb, cbErr);
+        return this._update(tx);
       }
-      return;
-
-    }else{
-
-      storago.db.transaction(function(tx){
-
-        if(!self.rowid){
-
-          self._insert.call(self, tx, cb, cbErr);
-        }else{
-          
-          self._update.call(self, tx, cb, cbErr);
-        }
-
-      }, cbErr);
-    }
+    });
   };
 
   Entry.prototype.put = function(data) {
@@ -236,17 +209,32 @@ module.exports = storago;;
     });
   };
 
-  Entry.find = function(rowid, cb, cbErr, tx) {
+  Entry.find = function(rowid, cb, errCb, tx) {
 
-    if(!rowid) return cb(null);
-    this.findBy('rowid', rowid, cb, cbErr, tx);
+    let defer = this.findBy('rowid', rowid, null, null, tx);
+
+    if(!!cb){
+      
+      return defer.then(cb, errCb);
+    }
+
+    return defer;
   };
 
   Entry.findBy = function(col, value, cb, cbErr, tx) {
-    var self = this;
-    var select = this.select();
-    select.where(this.META.name + '.' + col + ' = ?', value);
-    select.one(cb, cbErr, tx);
+
+    let defer = new Promise((resolve, reject) => {
+
+      let select = this.select();
+      select.where(this.META.name + '.' + col + ' = ?', value);
+      select.one(resolve, reject, tx);
+    });
+
+    if(!!cb){
+      return defer.then(cb, cbErr);
+    }
+
+    return defer;
   };
 
   Entry.select = function() {
@@ -452,6 +440,15 @@ module.exports = storago;;
       });
     }
   };
+
+  //static transaction
+  storago.transaction = function(){
+
+    return new Promise((resolve, reject) => {
+      
+      storago.db.transaction(resolve, reject);
+    });
+  }
 
   //static function reset
   storago.reset = function(cb) {
