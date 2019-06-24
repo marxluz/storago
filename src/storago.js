@@ -24,7 +24,17 @@ module.exports = storago;;
   var Entry = function(name, prop){};
   storago.Entry = Entry;
   Entry.prototype.rowid = null;
+  Entry._key   = 'rowid'; //key column
   var __Entry = Entry;
+
+  Entry.prototype._key = function(){
+
+    let key_column = this._TABLE._key;
+    let key = this[key_column];
+
+    if(!key) return null;
+    return key;
+  }
 
   Entry.prototype.pre_save = function(cb, cbErr, tx){
     return Promise.resolve(cb());
@@ -78,7 +88,7 @@ module.exports = storago;;
       }
 
       if(!this._DATA){
-        row = this._TABLE.find(this.rowid, null, null, tx);
+        row = await this._TABLE.find(this._key(), null, null, tx);
       } else {
 
         row = this;
@@ -95,7 +105,7 @@ module.exports = storago;;
         }
       }
 
-      update.where('rowid = ?', row.rowid);
+      update.where(`${this._TABLE._key} = ?`, row._key());
       update.execute(tx, resolve, reject);
     });
   }
@@ -112,7 +122,7 @@ module.exports = storago;;
 
     return defer.then(tx => {
 
-      if(!this.rowid){
+      if(!this._key()){
         return this._insert(tx);
       }else{
         return this._update(tx);
@@ -133,10 +143,10 @@ module.exports = storago;;
 
   Entry.prototype.delete = function(cb, errCb) {
 
-    if(!this.rowid) return cb();
+    if(!this._key()) return cb();
 
     var del = new query.Delete(this._TABLE);
-    del.where(this._TABLE.name + '.rowid = ?', this.rowid);
+    del.where(`${this._TABLE.name}.${this._TABLE._key} = ?`, this._key());
 
     storago.db.transaction(function(tx) {
       del.execute(tx, cb, function(tx, err) {
@@ -149,7 +159,7 @@ module.exports = storago;;
 
   Entry.prototype.refresh = function(cb) {
     var self = this;
-    this._TABLE.find(this.rowid, function(row) {
+    this._TABLE.find(this._key(), function(row) {
       for (var p in row) self[p] = row[p];
       if (cb) cb();
     });
@@ -209,9 +219,9 @@ module.exports = storago;;
     });
   };
 
-  Entry.find = function(rowid, cb, errCb, tx) {
+  Entry.find = function(key, cb, errCb, tx) {
 
-    let defer = this.findBy('rowid', rowid, null, null, tx);
+    let defer = this.findBy(this._key, key, null, null, tx);
 
     if(!!cb){
       
@@ -271,7 +281,7 @@ module.exports = storago;;
       } else if (typeof(item) == 'object') { // set mode
 
         if (item._TABLE && item._TABLE.META.name == self.META.name) {
-          this[ref_column] = item.rowid;
+          this[ref_column] = item._key();
           return;
         } else {
           var msg = "(storago) No permission: object must be class of (" + self.META.name + ")";
@@ -285,7 +295,7 @@ module.exports = storago;;
     Object.defineProperty(this.prototype, many_name, {
       get: function() {
         var select = child_entry.select();
-        select.where(ref_column + ' = ?', this.rowid);
+        select.where(ref_column + ' = ?', this._key());
         return select;
       }
     });
@@ -645,7 +655,60 @@ module.exports = storago;;
     }
   };
 
-  select.prototype.all = function(cb, cbErr, tx) {
+  select.prototype.all = async function(cb, cbErr, tx){
+
+    let def_tx = null;
+
+    if(!!tx){
+      def_tx = Promise.resolve(tx);
+    }else{
+      def_tx = storago.transaction();
+    }
+
+    let defer = def_tx.then(tx => {
+
+      return new Promise((resolve, reject) => {
+
+        this.execute(tx, (tx, result) => resolve(result), (tx, err) => reject(err));
+      });
+
+    }).then(result => {
+
+      let rowset  = [];
+      for(let r = 0; result.rows.length > r; r++){
+        
+        let data  = result.rows.item(r);
+        let row   = new this.table();
+        let props = this.table.META.props;
+        for(let p in data){
+
+          row[p] = tools.dbToField(props[p], data[p]);
+        }
+
+        row._DATA = data;
+        rowset.push(row);
+      }
+
+      if(storago.debug){
+
+        if(rowset.length > 0){
+          console.table(rowset);
+        }else{
+          console.log('not found!');
+        }
+      }
+
+      return Promise.resolve(rowset);
+    });
+
+    if(!!cb){
+      return defer.then(cb, cbErr);
+    }
+
+    return defer;
+  }
+
+  select.prototype.__all = function(cb, cbErr, tx) {
 
     var rowset = [];
     var self = this;
@@ -738,9 +801,9 @@ module.exports = storago;;
 
     if(type == 'date' || type == 'datetime'){
 
-      if(typeof value == 'string')  value = new Date(value.replace(/-/g, '/'));
-      if(type == 'date')     return value.getIsoDate();
-      if(type == 'datetime') return value.getIso();
+      if(typeof value == 'string')  value = new Date(value);
+      if(type == 'date')     return value.toISOString();
+      if(type == 'datetime') return value.toISOString();
     }
 
     if(typeof(value) == 'function') throw '(storago) function has been setted like property: ' + value;
