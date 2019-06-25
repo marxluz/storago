@@ -122,7 +122,7 @@ module.exports = storago;;
 
     return defer.then(tx => {
 
-      if(!this._key()){
+      if(!this._DATA){
         return this._insert(tx);
       }else{
         return this._update(tx);
@@ -143,26 +143,41 @@ module.exports = storago;;
 
   Entry.prototype.delete = function(cb, errCb) {
 
-    if(!this._key()) return cb();
+    if(!this._DATA) return cb();
 
-    var del = new query.Delete(this._TABLE);
-    del.where(`${this._TABLE.name}.${this._TABLE._key} = ?`, this._key());
+    let promise = storago.transaction().then(tx => {
 
-    storago.db.transaction(function(tx) {
-      del.execute(tx, cb, function(tx, err) {
-        if (errCb != undefined) return errCb(err);
-        var msg = "(storago) " + err.message;
-        throw msg;
+      return new Promise((resolve, reject) => {
+
+        let del = new query.Delete(this._TABLE);
+        del.where(`${this._TABLE.name}.${this._TABLE._key} = ?`, this._key());
+        del.execute(tx, resolve, (tx, err) => reject(err));
       });
-    }, errCb);
+    });
+
+    if(!!cb){
+      return promise.then(cb, errCb);
+    }
+
+    return promise;
   }
 
   Entry.prototype.refresh = function(cb) {
-    var self = this;
-    this._TABLE.find(this._key(), function(row) {
-      for (var p in row) self[p] = row[p];
-      if (cb) cb();
+
+    let promise = this._TABLE.find(this._key()).then(row => {
+
+      for(var p in row){
+        this[p] = rom[p];
+      }
+
+      return Promise.resolve(this);
     });
+
+    if(!!cb){
+      return promise.then(cb);
+    }
+
+    return promise;
   };
 
   Entry.hasColumn = function(column, cb, cbErr) {
@@ -233,12 +248,9 @@ module.exports = storago;;
 
   Entry.findBy = function(col, value, cb, cbErr, tx) {
 
-    let defer = new Promise((resolve, reject) => {
-
-      let select = this.select();
-      select.where(this.META.name + '.' + col + ' = ?', value);
-      select.one(resolve, reject, tx);
-    });
+    let select = this.select();
+    select.where(`${this.META.name}.${col} = ?`, value);
+    let defer = select.one(null, null, tx);
 
     if(!!cb){
       return defer.then(cb, cbErr);
@@ -257,6 +269,7 @@ module.exports = storago;;
   };
 
   Entry.hasMany = function(many_name, child_entry, name) {
+
     this.META.dependents[many_name] = child_entry;
     child_entry.META.parents[name] = this;
     var self = this;
@@ -265,7 +278,7 @@ module.exports = storago;;
     //config child
     child_entry.prototype[name] = function(item, cbErr) {
 
-      if (typeof(item) == 'function') { // get mode
+      if(typeof(item) == 'function'){ // get mode
 
         var ref_col = this[ref_column];
         if (!ref_col) return item(null);
@@ -275,10 +288,12 @@ module.exports = storago;;
 
       } else if (!item) {
 
-        this[ref_column] = null;
-        return;
+        let ref_col = this[ref_column];
+        if (!ref_col) return Promise.resolve(null);
 
-      } else if (typeof(item) == 'object') { // set mode
+        return self.find(ref_col);
+
+      }else if (typeof(item) == 'object') { // set mode
 
         if (item._TABLE && item._TABLE.META.name == self.META.name) {
           this[ref_column] = item._key();
@@ -689,15 +704,6 @@ module.exports = storago;;
         rowset.push(row);
       }
 
-      if(storago.debug){
-
-        if(rowset.length > 0){
-          console.table(rowset);
-        }else{
-          console.log('not found!');
-        }
-      }
-
       return Promise.resolve(rowset);
     });
 
@@ -779,15 +785,20 @@ module.exports = storago;;
   select.prototype.one = function(cb, cbErr, tx) {
 
     this.limit(1);
-    this.all(function(rowset){
+    let promise = this.all(function(rowset){
+
       if (rowset.length == 0) {
-        cb(null);
-        return;
+        return Promise.resolve(null);
       };
-      if (cb == undefined) throw "(storago) callback undefined";
-      if (typeof(cb) != 'function') throw "(storago) is not a function, " + typeof(cb) + " given";
-      cb(rowset[0]);
-    }, cbErr, tx);
+
+      return Promise.result(rowset[0]);
+    });
+
+    if(!!cb){
+      return promise.then(cb, cbErr);
+    }
+
+    return promise;
   };
 
   // Private package tools
@@ -900,7 +911,10 @@ module.exports = storago;;
     }
 
     for (var name in this.table.META.parents) {
-      this.columns.push('"' + name + '_id" NUMERIC');
+      let parent_model = this.table.META.parents[name];
+      let key_prop     = parent_model._key;
+      var type         = parent_model.META.props[key_prop];
+      this.columns.push(`"${name}_id" ${type}`);
     }
   };
 
