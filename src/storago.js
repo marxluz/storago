@@ -704,6 +704,10 @@ module.exports = storago;;
         rowset.push(row);
       }
 
+      if(storago.debug){
+        console.log(rowset);
+      }
+
       return Promise.resolve(rowset);
     });
 
@@ -791,7 +795,7 @@ module.exports = storago;;
         return Promise.resolve(null);
       };
 
-      return Promise.result(rowset[0]);
+      return Promise.resolve(rowset[0]);
     });
 
     if(!!cb){
@@ -812,8 +816,15 @@ module.exports = storago;;
 
     if(type == 'date' || type == 'datetime'){
 
-      if(typeof value == 'string')  value = new Date(value);
-      if(type == 'date')     return value.toISOString();
+      let tof = typeof value;
+
+      if(tof != 'string' && !(value instanceof Date)){
+
+        throw `Strange data ${tof}`;
+      }
+
+      value = new Date(value);
+      if(type == 'date')     return value.getIsoDate();
       if(type == 'datetime') return value.toISOString();
     }
 
@@ -823,7 +834,16 @@ module.exports = storago;;
 
   tools.dbToField = function(type, value) {
 
-    if(value && (type == 'DATE' || type == 'DATETIME')) return new Date(value.replace(/-/g, '/'));
+    if(value && type == 'DATE'){
+
+      return new Date(value.replace(/-/g, '/'));
+    }
+
+    if(value && type == 'DATETIME'){
+
+      return new Date(value);
+    }
+
     if(value && (type == 'BOOL')){
       if(value == 'false') return false;
       if(value == 'true')  return true;
