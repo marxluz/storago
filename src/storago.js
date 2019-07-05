@@ -823,7 +823,13 @@ module.exports = storago;;
         throw `Strange data ${tof}`;
       }
 
-      value = new Date(value);
+      if(tof == 'string'){
+
+        value = tools.dbToField(type, value);
+      }
+
+      console.log('VALLLLLLLLLL', value, type, tof);
+
       if(type == 'date')     return value.getIsoDate();
       if(type == 'datetime') return value.toISOString();
     }
@@ -834,17 +840,22 @@ module.exports = storago;;
 
   tools.dbToField = function(type, value) {
 
-    if(value && type == 'DATE'){
+    if(typeof type == 'string'){
+
+      type = type.toLowerCase().trim();
+    }
+
+    if(value && type == 'date'){
 
       return new Date(value.replace(/-/g, '/'));
     }
 
-    if(value && type == 'DATETIME'){
+    if(value && type == 'datetime'){
 
       return new Date(value);
     }
 
-    if(value && (type == 'BOOL')){
+    if(value && (type == 'bool')){
       if(value == 'false') return false;
       if(value == 'true')  return true;
     };
