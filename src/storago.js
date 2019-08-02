@@ -138,7 +138,9 @@ module.exports = storago;;
 
   Entry.prototype.array = function(){
   
-    return this._DATA;
+    let data = Object.assign({}, this);
+    delete data._DATA;
+    return data;
   }
 
   Entry.prototype.delete = function(cb, errCb) {
@@ -827,8 +829,6 @@ module.exports = storago;;
 
         value = tools.dbToField(type, value);
       }
-
-      console.log('VALLLLLLLLLL', value, type, tof);
 
       if(type == 'date')     return value.getIsoDate();
       if(type == 'datetime') return value.toISOString();
