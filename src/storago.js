@@ -504,23 +504,19 @@ module.exports = storago;;
     let promise = storago.transaction().then(tx => {
 
       return new Promise((resolve, reject) => {
-
-        tx.executeSql(sql, data, 
-          (tx, resp) => {
-
-            let rows = Array.from(resp.rows);
-            resolve(rows);
-          }, 
-          (tx, err) =>  { reject(err); }
-        );
+          tx.executeSql(sql, data,
+              (...args) => { resolve(args); },
+              (...args) => { reject(args); }
+          );
       });
     });
 
     if(!!cb){
-      return promise.then(cb, errCb);
+      return promise.then((data) => { cb(data[0], data[1]); }, (data) => { errCb(data[0], data[1]); });
     }
 
     return promise;
+
   };
   storago.sql = sql;
 
