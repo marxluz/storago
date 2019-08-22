@@ -138,7 +138,9 @@ module.exports = storago;;
 
   Entry.prototype.array = function(){
   
-    return this._DATA;
+    let data = Object.assign({}, this);
+    delete data._DATA;
+    return data;
   }
 
   Entry.prototype.delete = function(cb, errCb) {
@@ -498,11 +500,27 @@ module.exports = storago;;
 
   //free sql
   var sql = function(sql, data, cb, errCb){
-  
-    storago.db.transaction(function(tx){
-      
-      tx.executeSql(sql, data, cb, errCb);
-    }, errCb);
+
+    let promise = storago.transaction().then(tx => {
+
+      return new Promise((resolve, reject) => {
+
+        tx.executeSql(sql, data, 
+          (tx, resp) => {
+
+            let rows = Array.from(resp.rows);
+            resolve(rows);
+          }, 
+          (tx, err) =>  { reject(err); }
+        );
+      });
+    });
+
+    if(!!cb){
+      return promise.then(cb, errCb);
+    }
+
+    return promise;
   };
   storago.sql = sql;
 
@@ -827,8 +845,6 @@ module.exports = storago;;
 
         value = tools.dbToField(type, value);
       }
-
-      console.log('VALLLLLLLLLL', value, type, tof);
 
       if(type == 'date')     return value.getIsoDate();
       if(type == 'datetime') return value.toISOString();
