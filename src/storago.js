@@ -838,6 +838,12 @@ module.exports = storago;;
       value = JSON.stringify(value);
     }
 
+    if(!!value && type == 'timestamp'){
+      if(value instanceof Date){
+        value = value.getTime();
+      }
+    }
+
     if(type == 'date' || type == 'datetime'){
 
       if(tof == 'number' && value > 1000000000000){
@@ -870,23 +876,18 @@ module.exports = storago;;
     }
 
     if(type == 'json'){
-
       if(!!value && typeof value == 'string'){
-
         return JSON.parse(value);
       }else{
-
         return [];
       }
     }
 
     if(value && type == 'date'){
-
       return new Date(value.replace(/-/g, '/'));
     }
 
     if(value && type == 'datetime'){
-
       return new Date(value);
     }
 
