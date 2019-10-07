@@ -143,18 +143,22 @@ module.exports = storago;;
     return data;
   }
 
-  Entry.prototype.delete = function(cb, errCb) {
+  Entry.prototype.delete = function(cb, errCb, tx){
 
-    if(!this._DATA) return cb();
+    if(!this._DATA){
+      if(!!cb){
+        cb();
+      }
+      return Promise.resolve();
+    }
+    
+    let tx_promise = !!tx ? Promise.resolve(tx) : storago.transaction();
 
-    let promise = storago.transaction().then(tx => {
+    let promise = tx_promise.then(tx => {
 
-      return new Promise((resolve, reject) => {
-
-        let del = new query.Delete(this._TABLE);
-        del.where(`${this._TABLE.name}.${this._TABLE._key} = ?`, this._key());
-        del.execute(tx, resolve, (tx, err) => reject(err));
-      });
+      let del = new query.Delete(this._TABLE);
+      del.where(`${this._TABLE.name}.${this._TABLE._key} = ?`, this._key());
+      return del.execute(tx);
     });
 
     if(!!cb){
@@ -827,14 +831,22 @@ module.exports = storago;;
     if(type === undefined) return value;
     
     type = type.toLowerCase().trim();
+    let tof = typeof value;
+
+    if(type == 'json' && tof == 'object'){
+
+      value = JSON.stringify(value);
+    }
 
     if(type == 'date' || type == 'datetime'){
 
-      let tof = typeof value;
+      if(tof == 'number' && value > 1000000000000){
 
-      if(tof != 'string' && !(value instanceof Date)){
+        value = new Date(value);
 
-        throw `Strange data ${tof}`;
+      }else if(tof != 'string' && !(value instanceof Date)){
+
+        throw `Strange data, type: ${type}, value ${value}, value type: ${tof}`;
       }
 
       if(tof == 'string'){
@@ -855,6 +867,17 @@ module.exports = storago;;
     if(typeof type == 'string'){
 
       type = type.toLowerCase().trim();
+    }
+
+    if(type == 'json'){
+
+      if(!!value && typeof value == 'string'){
+
+        return JSON.parse(value);
+      }else{
+
+        return [];
+      }
     }
 
     if(value && type == 'date'){
@@ -1212,36 +1235,42 @@ module.exports = storago;;
     return sql;
   };
 
-  del.prototype.execute = function(tx, cb, cbErr) {
+  del.prototype.execute = function(tx, cb, errCb){
 
-    try{
+    let promise = new Promise((resolve, reject) => {
 
-      var self = this;
-      var sql  = this.render();
+      let sql = this.render();
 
-      if (sql == null) {
-        if (!cb) cb(tx);
-        return;
+      if(sql == null){
+        return resolve(tx);
       }
 
-      if (storago.debug) console.log(sql, this.values);
-      tx.executeSql(sql, this.values, cb, function(tx, err){
-        err.name   = self.table.META.name;
-        err.action = 'delete';
-        if(!!cbErr) cbErr(tx, err);
+      if(storago.debug) console.log(sql, this.values);
+      tx.executeSql(sql, this.values, (tx, result) => {
+        resolve(result);
+
+      }, (tx, err) => {
+        reject(err);
       });
 
-    }catch(e){
-    
-      if(!!cbErr){
-        
-        cbErr(null, e);
-      }else{
-        
-        throw e;
+    }).catch(err => { 
+
+      err.name   = this.table.META.name;
+      err.action = 'delete';
+
+      if(!!errCb){
+        return errCb(tx, err); 
       }
+
+      return Promise.reject(err);
+    });
+
+    if(!!cb){
+      return promise.then(cb);
     }
-  };
+
+    return promise;
+  }
 
   //class query.Update
   var update = function(table) {
