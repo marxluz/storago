@@ -48,11 +48,16 @@ module.exports = storago;;
 
     let defer = new Promise(async (resolve, reject) => {
 
-      await new Promise((resolve, reject) => { this.pre_save(resolve, reject, tx); });
-      tx = await this._save(tx)
-      await new Promise((resolve, reject) => { this.post_save(resolve, reject, tx); });
+      try{
+        await new Promise((resolve, reject) => { this.pre_save(resolve, reject, tx); });
+        tx = await this._save(tx)
+        await new Promise((resolve, reject) => { this.post_save(resolve, reject, tx); });
 
-      resolve(this);
+        resolve(this);
+      }catch(e){
+        reject(e);
+      }
+
     });
 
     if(!!cb){
@@ -81,32 +86,37 @@ module.exports = storago;;
 
     return new Promise(async (resolve, reject) => {
 
-      let row = null;
+      try{
 
-      if(!tx){
-        tx = await storago.transaction();
-      }
+        let row = null;
 
-      if(!this._DATA){
-        row = await this._TABLE.find(this._key(), null, null, tx);
-      } else {
-
-        row = this;
-      }
-    
-      var data = row._DATA;
-      var update = new query.Update(this._TABLE);
-
-      for (var p in data) {
-        var type   = this._TABLE.META.props[p];
-        var self_p = tools.fieldToDb(type, this[p]);
-        if (self_p != data[p]) {
-          update.set(p, this[p]);
+        if(!tx){
+          tx = await storago.transaction();
         }
-      }
 
-      update.where(`${this._TABLE._key} = ?`, row._key());
-      update.execute(tx, resolve, reject);
+        if(!this._DATA){
+          row = await this._TABLE.find(this._key(), null, null, tx);
+        } else {
+
+          row = this;
+        }
+      
+        var data = row._DATA;
+        var update = new query.Update(this._TABLE);
+
+        for (var p in data) {
+          var type   = this._TABLE.META.props[p];
+          var self_p = tools.fieldToDb(type, this[p]);
+          if (self_p != data[p]) {
+            update.set(p, this[p]);
+          }
+        }
+
+        update.where(`${this._TABLE._key} = ?`, row._key());
+        update.execute(tx, resolve, reject);
+      }catch(e){
+        reject(e);
+      }
     });
   }
 
@@ -869,6 +879,10 @@ module.exports = storago;;
   };
 
   tools.dbToField = function(type, value) {
+
+    if(!!type){
+      type = type.toLowerCase();
+    }
 
     if(typeof type == 'string'){
 
