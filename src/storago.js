@@ -487,7 +487,13 @@ module.exports = storago;;
 
     return new Promise((resolve, reject) => {
       
-      storago.db.transaction(resolve, reject);
+      if(!!storago.db){
+        storago.db.transaction(resolve, reject);
+      }
+
+      setTimeout(() => {
+        storago.transaction().then(resolve, reject);
+      }, 2000);
     });
   }
 
