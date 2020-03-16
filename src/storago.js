@@ -486,6 +486,8 @@ module.exports = storago;;
   storago.transaction = function(){
 
     return new Promise((resolve, reject) => {
+
+      return  storago.db.transaction(resolve, reject);
       
       if(!!storago.db){
         storago.db.transaction(resolve, reject);
