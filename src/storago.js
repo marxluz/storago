@@ -78,7 +78,7 @@ module.exports = storago;;
         this.rowid = result.insertId;
         resolve(tx);
 
-      }, reject);
+      }, (tx, err) => reject(err));
     });
   };
 
@@ -112,8 +112,8 @@ module.exports = storago;;
           }
         }
 
-        update.where(`${this._TABLE._key} = ?`, row._key());
-        update.execute(tx, resolve, reject);
+        update.where(`${this._TABLE._key} = ?`, row._key());       
+        update.execute(tx, resolve, (tx, err) => reject(err));
       }catch(e){
         reject(e);
       }
@@ -317,7 +317,7 @@ module.exports = storago;;
         } else {
           var msg = "(storago) No permission: object must be class of (" + self.META.name + ")";
           msg += ", but is the class (" + item._TABLE.META.name + ")";
-          throw msg;
+          throw new Error(msg);
         }
       }
     };
@@ -359,7 +359,7 @@ module.exports = storago;;
 
   storago.migration = function(number, migreFunc, migreErr) {
     if (__migrations_number.indexOf(number) >= 0) {
-      throw "(storago) Migration " + number + " already exists";
+      throw new Error("(storago) Migration " + number + " already exists");
     }
     __migrations_number.push(number);
     __migrations_number.sort(function(a, b){ return a - b });
@@ -474,7 +474,7 @@ module.exports = storago;;
       return oncreate(function(){
 
         var index = __migrations_number.indexOf(version);
-        if (index < 0) throw "(storago) Version " + version + " no have on migration list";
+        if (index < 0) throw new Error("(storago) Version " + version + " no have on migration list");
         __migrations_number = __migrations_number.slice(index).reverse();
         __migrations_number.pop(); //Discart current version
         migreTo(__migrations_number.pop(), cb);
@@ -486,16 +486,12 @@ module.exports = storago;;
   storago.transaction = function(){
 
     return new Promise((resolve, reject) => {
-
-      return  storago.db.transaction(resolve, reject);
-      
-      if(!!storago.db){
-        storago.db.transaction(resolve, reject);
+    
+      if(!storago.db){
+        return reject('db not found!');
       }
 
-      setTimeout(() => {
-        storago.transaction().then(resolve, reject);
-      }, 2000);
+      return storago.db.transaction(resolve, reject);
     });
   }
 
@@ -808,7 +804,7 @@ module.exports = storago;;
           cbErr(err);
           return;
         } else {
-          throw "(storago) " + err.message;
+          throw err;
         }
       });
     };
@@ -870,7 +866,7 @@ module.exports = storago;;
 
       }else if(tof != 'string' && !(value instanceof Date)){
 
-        throw `Strange data, type: ${type}, value ${value}, value type: ${tof}`;
+        throw new Error(`Strange data, type: ${type}, value ${value}, value type: ${tof}`);
       }
 
       if(tof == 'string'){
@@ -882,7 +878,7 @@ module.exports = storago;;
       if(type == 'datetime') return value.toISOString();
     }
 
-    if(typeof(value) == 'function') throw '(storago) function has been setted like property: ' + value;
+    if(typeof(value) == 'function') throw new Error('(storago) function has been setted like property: ' + value);
     return value;
   };
 
@@ -1120,14 +1116,14 @@ module.exports = storago;;
 
     if(!obj._TABLE){
       var msg = "Is not valid object " + JSON.stringify(obj);
-      throw msg;
+      throw new Error(msg);
     }
     
     if(obj._TABLE.META.name != this.table.META.name) {
       
       var msg = "(storago) No permission: object must be of class(" + this.table.META.name + ")";
       msg += ", but is the class(" + obj._TABLE.META.name + ")";
-      throw msg;
+      throw new Error(msg);
     }
 
     this.objects.push(obj);
@@ -1195,7 +1191,8 @@ module.exports = storago;;
           name: self.table.META.name,
           action: 'insert',
         };
-
+        
+        console.log('(storago)', e);
         if(!!cbErr) cbErr(tx, e);
       });
     
@@ -1209,12 +1206,11 @@ module.exports = storago;;
       };
 
       if(typeof sql != 'undefined') e.sql = sql;
-    
-      if(!!cbErr){
-        
+      console.log('(storago)', e);
+      if(!!cbErr){        
         cbErr(null, e);
-      }else{
         
+      }else{        
         throw e;
       }
 
