@@ -1187,6 +1187,7 @@ module.exports = storago;;
         var e = {
           error: err,
           sql: sql,
+          message: err.message,
           values: self.values,
           name: self.table.META.name,
           action: 'insert',
@@ -1200,13 +1201,14 @@ module.exports = storago;;
 
       var e = {
         error: err,
+        message: err.message,
         values: this.values,
         name: this.table.META.name,
         action: 'insert',
       };
 
       if(typeof sql != 'undefined') e.sql = sql;
-      console.log('(storago)', e);
+      console.error('(storago)', e);
       if(!!cbErr){        
         cbErr(null, e);
         
@@ -1362,7 +1364,7 @@ module.exports = storago;;
         
         console.log(err, cbErr);
         err.name   = self.table.META.name;
-        err.action = 'update';
+        err.action = 'update';        
         if(!!cbErr){
           cbErr(tx, err);
           console.log('(storago)', err);
