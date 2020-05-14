@@ -379,15 +379,17 @@ module.exports = storago;;
       t_index[i]  = __tables[i]; //clone
     }
 
-    var _create = function(tx, onCb){
+    var _create = function(tx, onCb, errCb){
 
       var table = t_create.pop();
 
       if(!!table){
         var create = new query.Create(table);
         create.execute(tx, function(tx) {
-          _create(tx, onCb);
-        }, errCb);
+          _create(tx, onCb, errCb);
+        }, (tx, error) => {
+          if(!!errCb) errCb(errCb);
+        });
 
       }else{
 
@@ -395,13 +397,13 @@ module.exports = storago;;
       }
     }
 
-    var _index = function(tx, onCb){
+    var _index = function(tx, onCb, errCb){
 
       var table = t_index.pop();
       if (table) {
         var index = new query.Index(table);
         index.execute(tx, function(tx) {
-          _index(tx, onCb);
+          _index(tx, onCb, errCb);
         }, errCb);
 
       } else {
@@ -412,18 +414,22 @@ module.exports = storago;;
     var onindex = function(onCb, errCb){
     
       storago.db.transaction(function(tx){
-        _index(tx, onCb);
-      }, errCb);
+        _index(tx, onCb, errCb);
+      }, (tx, error) => {
+        errCb(error);
+      });
     }
 
-    var oncreate = function(onCb){
+    var oncreate = function(onCb, errCb){
 
       storago.db.transaction(function(tx){
-        _create(tx, onCb);
-      }, errCb);
+        _create(tx, onCb, errCb);
+      }, (tx, error) => {
+        errCb(error)
+      });
     }
 
-    var migreTo = function(version, onCb) {
+    var migreTo = function(version, onCb, errCb) {
 
       if(version && __migrations[version]){
 
@@ -447,13 +453,13 @@ module.exports = storago;;
         }, function() {
 
           migreTo(__migrations_number.pop(), function(){
-            onindex(onCb);
-          });
+            onindex(onCb, errCb, errCb);
+          }, errCb);
         });
 
       } else {
         __migrations = {}; //clear migrations
-        onindex(onCb);
+        onindex(onCb, errCb, errCb);
       }
     }
 
@@ -477,7 +483,7 @@ module.exports = storago;;
         if (index < 0) throw new Error("(storago) Version " + version + " no have on migration list");
         __migrations_number = __migrations_number.slice(index).reverse();
         __migrations_number.pop(); //Discart current version
-        migreTo(__migrations_number.pop(), cb);
+        migreTo(__migrations_number.pop(), cb, errCb);
       });
     }
   };
