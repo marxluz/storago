@@ -502,10 +502,9 @@ module.exports = storago;;
   }
 
   //static function reset
-  storago.reset = function(cb) {
+  storago.reset = function(cb, errCb) {
 
-    var changeVersion = function(){
-      
+    var changeVersion = function(){      
       storago.db.changeVersion(storago.db.version, '', cb);
     }
 
@@ -515,11 +514,11 @@ module.exports = storago;;
         changeVersion();
         return;
       }
-      var drop = new query.Drop(table);
-      drop.execute(tx, ondrop);
+      var drop = new query.Truncate(table);
+      drop.execute(tx, ondrop, errCb);
     }
 
-    storago.db.transaction(function(tx){ ondrop(tx); });
+    storago.db.transaction(function(tx){ ondrop(tx); }, errCb);
   };
 
   //free sql
