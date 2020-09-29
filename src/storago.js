@@ -1448,11 +1448,9 @@ module.exports = storago;;
         //dataonly: true,
         linebreaks: true,
         success: function(sql) {
-          console.log(sql);
-          resolve();
+          resolve(sql);
         },
         error: error => {
-          console.log('error', error);
           reject(error);
         }
       });
