@@ -900,9 +900,16 @@ module.exports = storago;;
 
     if(type == 'json'){
       if(!!value && typeof value == 'string'){
-        return JSON.parse(value);
+        try{
+          return JSON.parse(value);
+        }catch (error)
+        {
+          console.error(error);
+          return {};
+        }
+
       }else{
-        return [];
+        return {};
       }
     }
 
